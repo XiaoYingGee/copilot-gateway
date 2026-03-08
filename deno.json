@@ -1,0 +1,11 @@
+{
+  "tasks": {
+    "dev": "deno run --allow-net --allow-env --watch src/main.ts"
+  },
+  "imports": {
+    "hono": "jsr:@hono/hono@^4",
+    "hono/logger": "jsr:@hono/hono@^4/logger",
+    "hono/cors": "jsr:@hono/hono@^4/cors",
+    "hono/streaming": "jsr:@hono/hono@^4/streaming"
+  }
+}
