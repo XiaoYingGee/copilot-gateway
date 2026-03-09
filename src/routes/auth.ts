@@ -15,7 +15,6 @@ import {
 import { clearCopilotTokenCache } from "../lib/copilot.ts";
 import { getEnv } from "../lib/env.ts";
 import { validateApiKey } from "../lib/api-keys.ts";
-import { requireAdmin } from "../lib/auth-guard.ts";
 
 // GitHub OAuth app client ID (same as Copilot extension)
 const GITHUB_CLIENT_ID = "Iv1.b507a08c87ecfe98";
@@ -59,8 +58,6 @@ export const authLogout = (_c: Context) => {
 
 /** GET /auth/github — start GitHub Device Flow */
 export const authGithub = async (c: Context) => {
-  const denied = requireAdmin(c);
-  if (denied) return denied;
   try {
     const resp = await fetch("https://github.com/login/device/code", {
       method: "POST",
@@ -96,8 +93,6 @@ export const authGithub = async (c: Context) => {
 
 /** POST /auth/github/poll — poll for device flow completion */
 export const authGithubPoll = async (c: Context) => {
-  const denied = requireAdmin(c);
-  if (denied) return denied;
   try {
     const body = await c.req.json<{ device_code: string }>();
 
@@ -177,9 +172,6 @@ export const authGithubPoll = async (c: Context) => {
 
 /** GET /auth/me — get all GitHub accounts + active account info */
 export const authMe = async (c: Context) => {
-  const denied = requireAdmin(c);
-  if (denied) return denied;
-
   const accounts = await listGithubAccounts();
   const active = await getActiveGithubAccount();
 
@@ -219,8 +211,6 @@ export const authMe = async (c: Context) => {
 
 /** DELETE /auth/github/:id — disconnect a specific GitHub account */
 export const authGithubDisconnect = async (c: Context) => {
-  const denied = requireAdmin(c);
-  if (denied) return denied;
   const userId = Number(c.req.param("id"));
   if (!userId || isNaN(userId)) {
     return c.json({ error: "Invalid user ID" }, 400);
@@ -232,8 +222,6 @@ export const authGithubDisconnect = async (c: Context) => {
 
 /** POST /auth/github/switch — switch active GitHub account */
 export const authGithubSwitch = async (c: Context) => {
-  const denied = requireAdmin(c);
-  if (denied) return denied;
   const body = await c.req.json<{ user_id: number }>();
   if (!body.user_id) {
     return c.json({ error: "user_id is required" }, 400);

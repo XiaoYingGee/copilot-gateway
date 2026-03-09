@@ -38,6 +38,13 @@ export const authMiddleware = async (c: Context, next: Next) => {
   return c.json({ error: "Unauthorized" }, 401);
 };
 
+export const adminOnlyMiddleware = async (c: Context, next: Next) => {
+  if (!c.get("isAdmin")) {
+    return c.json({ error: "Dashboard key required" }, 403);
+  }
+  return next();
+};
+
 function extractKey(c: Context): string | null {
   const url = new URL(c.req.url);
   return (

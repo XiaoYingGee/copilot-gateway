@@ -8,10 +8,10 @@
 //   GET  /v1/models
 //
 // Control plane (ADMIN_KEY or API key via /api/, /auth/ prefixes):
-//   GET  /api/copilot-quota     — upstream Copilot quota
+//   GET  /api/copilot-quota     — upstream Copilot quota (admin only)
 //   GET  /api/token-usage       — per-key token usage records
 //   GET  /api/models            — model list for dashboard
-//   CRUD /api/keys              — API key management
+//   CRUD /api/keys              — API key management (writes admin only)
 //
 // Frontend:
 //   GET  /              — Login page (or JSON health check for API clients)
@@ -38,7 +38,7 @@ import {
   authGithubSwitch,
   authMe,
 } from "./routes/auth.ts";
-import { authMiddleware } from "./middleware/auth.ts";
+import { authMiddleware, adminOnlyMiddleware } from "./middleware/auth.ts";
 import { usageMiddleware } from "./middleware/usage.ts";
 import { LoginPage } from "./ui/login.tsx";
 import { DashboardPage } from "./ui/dashboard.tsx";
@@ -63,15 +63,34 @@ app.get("/", (c) => {
 app.get("/dashboard", (c) => c.html(DashboardPage()));
 app.get("/favicon.ico", () => new Response(null, { status: 204 }));
 
-// Control plane — dashboard API
-app.get("/api/copilot-quota", copilotQuota);
+// Auth — open to any authenticated user
+app.post("/auth/login", authLogin);
+app.post("/auth/logout", authLogout);
+
+// Auth — admin only
+const adminAuth = new Hono();
+adminAuth.use("*", adminOnlyMiddleware);
+adminAuth.get("/github", authGithub);
+adminAuth.post("/github/poll", authGithubPoll);
+adminAuth.delete("/github/:id", authGithubDisconnect);
+adminAuth.post("/github/switch", authGithubSwitch);
+adminAuth.get("/me", authMe);
+app.route("/auth", adminAuth);
+
+// Control plane — any authenticated
+app.get("/api/keys", listKeys);
 app.get("/api/token-usage", tokenUsage);
 app.get("/api/models", models);
-app.get("/api/keys", listKeys);
-app.post("/api/keys", createKey);
-app.post("/api/keys/:id/rotate", rotateKey);
-app.patch("/api/keys/:id", renameKey);
-app.delete("/api/keys/:id", deleteKey);
+
+// Control plane — admin only
+const adminApi = new Hono();
+adminApi.use("*", adminOnlyMiddleware);
+adminApi.get("/copilot-quota", copilotQuota);
+adminApi.post("/keys", createKey);
+adminApi.post("/keys/:id/rotate", rotateKey);
+adminApi.patch("/keys/:id", renameKey);
+adminApi.delete("/keys/:id", deleteKey);
+app.route("/api", adminApi);
 
 // Data plane — OpenAI-compatible
 app.post("/v1/chat/completions", chatCompletions);
@@ -86,14 +105,5 @@ app.post("/responses", responses);
 // Data plane — Anthropic-compatible
 app.post("/v1/messages", messages);
 app.post("/v1/messages/count_tokens", countTokens);
-
-// Auth
-app.post("/auth/login", authLogin);
-app.post("/auth/logout", authLogout);
-app.get("/auth/github", authGithub);
-app.post("/auth/github/poll", authGithubPoll);
-app.delete("/auth/github/:id", authGithubDisconnect);
-app.post("/auth/github/switch", authGithubSwitch);
-app.get("/auth/me", authMe);
 
 Deno.serve(app.fetch);

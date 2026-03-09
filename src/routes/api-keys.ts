@@ -2,7 +2,6 @@
 
 import type { Context } from "hono";
 import { createApiKey, listApiKeys, deleteApiKey, rotateApiKey, renameApiKey, type ApiKey } from "../lib/api-keys.ts";
-import { requireAdmin } from "../lib/auth-guard.ts";
 
 function keyToJson(k: ApiKey) {
   return { id: k.id, name: k.name, key: k.key, created_at: k.createdAt, last_used_at: k.lastUsedAt ?? null };
@@ -19,9 +18,6 @@ export const listKeys = (c: Context) => {
 };
 
 export const createKey = async (c: Context) => {
-  const denied = requireAdmin(c);
-  if (denied) return denied;
-
   const body = await c.req.json<{ name?: string }>();
   if (!body.name || typeof body.name !== "string") {
     return c.json({ error: "name is required" }, 400);
@@ -32,9 +28,6 @@ export const createKey = async (c: Context) => {
 };
 
 export const deleteKey = async (c: Context) => {
-  const denied = requireAdmin(c);
-  if (denied) return denied;
-
   const id = c.req.param("id") ?? "";
   const deleted = await deleteApiKey(id);
   if (!deleted) return c.json({ error: "Key not found" }, 404);
@@ -42,9 +35,6 @@ export const deleteKey = async (c: Context) => {
 };
 
 export const rotateKey = async (c: Context) => {
-  const denied = requireAdmin(c);
-  if (denied) return denied;
-
   const id = c.req.param("id") ?? "";
   const key = await rotateApiKey(id);
   if (!key) return c.json({ error: "Key not found" }, 404);
@@ -52,9 +42,6 @@ export const rotateKey = async (c: Context) => {
 };
 
 export const renameKey = async (c: Context) => {
-  const denied = requireAdmin(c);
-  if (denied) return denied;
-
   const id = c.req.param("id") ?? "";
   const body = await c.req.json<{ name?: string }>();
   if (!body.name || typeof body.name !== "string") {

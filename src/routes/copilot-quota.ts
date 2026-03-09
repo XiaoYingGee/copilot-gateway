@@ -3,7 +3,6 @@
 import type { Context } from "hono";
 import { githubHeaders } from "../lib/copilot.ts";
 import { getGithubToken } from "../lib/github.ts";
-import { requireAdmin } from "../lib/auth-guard.ts";
 
 export interface QuotaDetail {
   entitlement: number;
@@ -34,8 +33,6 @@ export interface CopilotUsageResponse {
 }
 
 export const copilotQuota = async (c: Context) => {
-  const denied = requireAdmin(c);
-  if (denied) return denied;
   try {
     const githubToken = await getGithubToken();
     if (!githubToken) {
