@@ -94,9 +94,20 @@ export function LoginPage() {
                 const data = await resp.json();
                 if (data.ok) {
                   localStorage.setItem('access_key', this.accessKey);
+                  localStorage.setItem('role', data.role || 'admin');
+                  if (data.role === 'key') {
+                    localStorage.setItem('login_key_id', data.keyId);
+                    localStorage.setItem('login_key_name', data.keyName);
+                    localStorage.setItem('login_key_hint', data.keyHint);
+                  } else {
+                    localStorage.removeItem('login_key_id');
+                    localStorage.removeItem('login_key_name');
+                    localStorage.removeItem('login_key_hint');
+                  }
                   window.location.href = '/dashboard';
                 } else {
                   localStorage.removeItem('access_key');
+                  localStorage.removeItem('role');
                   this.error = data.error || 'Authentication failed';
                 }
               } catch (e) {

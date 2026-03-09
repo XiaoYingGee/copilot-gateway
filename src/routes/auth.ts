@@ -1,30 +1,46 @@
 // Auth routes — ACCESS_KEY validation + GitHub Device Flow OAuth
-// No sessions, no cookies. All auth via ACCESS_KEY in every request.
+// Supports admin login (ACCESS_KEY) and API key login (restricted dashboard access)
+// No sessions, no cookies. All auth via key in every request.
 
 import type { Context } from "hono";
 import {
   getGithubToken,
   getGlobalGithubUser,
   setGithubConnection,
+  clearGithubConnection,
   type GitHubUser,
 } from "../lib/session.ts";
 import { getEnv } from "../lib/env.ts";
+import { validateApiKey } from "../lib/api-keys.ts";
 
 // GitHub OAuth app client ID (same as Copilot extension)
 const GITHUB_CLIENT_ID = "Iv1.b507a08c87ecfe98";
 const GITHUB_SCOPES = "read:user";
 
-/** POST /auth/login — validate ACCESS_KEY (no session, just verify) */
+/** POST /auth/login — validate ACCESS_KEY or API key */
 export const authLogin = async (c: Context) => {
   try {
     const body = await c.req.json<{ access_key: string }>();
     const expectedKey = getEnv("ACCESS_KEY");
 
-    if (!expectedKey || body.access_key !== expectedKey) {
-      return c.json({ error: "Invalid access key" }, 401);
+    // Admin login
+    if (expectedKey && body.access_key === expectedKey) {
+      return c.json({ ok: true, role: "admin" });
     }
 
-    return c.json({ ok: true });
+    // API key login
+    const result = await validateApiKey(body.access_key);
+    if (result) {
+      return c.json({
+        ok: true,
+        role: "key",
+        keyId: result.id,
+        keyName: result.name,
+        keyHint: body.access_key.slice(-4),
+      });
+    }
+
+    return c.json({ error: "Invalid access key" }, 401);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return c.json({ error: msg }, 500);
@@ -37,8 +53,9 @@ export const authLogout = (_c: Context) => {
   return _c.json({ ok: true });
 };
 
-/** GET /auth/github — start GitHub Device Flow */
+/** GET /auth/github — start GitHub Device Flow (admin only) */
 export const authGithub = async (c: Context) => {
+  if (c.get("apiKeyId") !== "admin") return c.json({ error: "Admin access required" }, 403);
   try {
     const resp = await fetch("https://github.com/login/device/code", {
       method: "POST",
@@ -72,8 +89,9 @@ export const authGithub = async (c: Context) => {
   }
 };
 
-/** POST /auth/github/poll — poll for device flow completion */
+/** POST /auth/github/poll — poll for device flow completion (admin only) */
 export const authGithubPoll = async (c: Context) => {
+  if (c.get("apiKeyId") !== "admin") return c.json({ error: "Admin access required" }, 403);
   try {
     const body = await c.req.json<{ device_code: string }>();
 
@@ -150,8 +168,9 @@ export const authGithubPoll = async (c: Context) => {
   }
 };
 
-/** GET /auth/me — get current GitHub connection info */
+/** GET /auth/me — get current GitHub connection info (admin only) */
 export const authMe = async (c: Context) => {
+  if (c.get("apiKeyId") !== "admin") return c.json({ error: "Admin access required" }, 403);
   const globalToken = await getGithubToken();
   const githubConnected = !!globalToken;
   let user = githubConnected ? await getGlobalGithubUser() : null;
@@ -180,4 +199,11 @@ export const authMe = async (c: Context) => {
     github_connected: githubConnected,
     user,
   });
+};
+
+/** POST /auth/github/disconnect — disconnect GitHub account (admin only) */
+export const authGithubDisconnect = async (c: Context) => {
+  if (c.get("apiKeyId") !== "admin") return c.json({ error: "Admin access required" }, 403);
+  await clearGithubConnection();
+  return c.json({ ok: true });
 };

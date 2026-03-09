@@ -11,17 +11,29 @@ function requireAdmin(c: Context): Response | null {
 }
 
 export const listKeys = (c: Context) => {
-  const denied = requireAdmin(c);
-  if (denied) return denied;
+  const callerId = c.get("apiKeyId");
 
-  return listApiKeys().then((keys) =>
-    c.json(keys.map((k) => ({
+  if (callerId === "admin") {
+    return listApiKeys().then((keys) =>
+      c.json(keys.map((k) => ({
+        id: k.id,
+        name: k.name,
+        key_hint: k.key.slice(-4),
+        created_at: k.createdAt,
+      })))
+    );
+  }
+
+  // Non-admin: return only the caller's own key
+  return listApiKeys().then((keys) => {
+    const own = keys.filter((k) => k.id === callerId);
+    return c.json(own.map((k) => ({
       id: k.id,
       name: k.name,
       key_hint: k.key.slice(-4),
       created_at: k.createdAt,
-    })))
-  );
+    })));
+  });
 };
 
 export const createKey = async (c: Context) => {

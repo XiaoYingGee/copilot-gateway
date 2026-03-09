@@ -32,3 +32,9 @@ export async function setGithubConnection(
   await kv.set(["config", "github_token"], token);
   await kv.set(["config", "github_user"], user);
 }
+
+/** Clear stored GitHub token and user info */
+export async function clearGithubConnection(): Promise<void> {
+  await kv.delete(["config", "github_token"]);
+  await kv.delete(["config", "github_user"]);
+}

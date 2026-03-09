@@ -33,6 +33,7 @@ export interface CopilotUsageResponse {
 }
 
 export const copilotQuota = async (c: Context) => {
+  if (c.get("apiKeyId") !== "admin") return c.json({ error: "Admin access required" }, 403);
   try {
     const githubToken = await getGithubToken();
     if (!githubToken) {

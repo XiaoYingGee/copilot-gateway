@@ -26,16 +26,19 @@ export function DashboardPage() {
               </div>
               <span class="font-semibold text-white text-sm tracking-tight">Copilot Gateway</span>
             </div>
+            <button @click="logout()" class="btn-ghost text-xs">Logout</button>
           </div>
 
           <!-- Tab bar -->
           <div class="max-w-6xl mx-auto px-6 pb-3">
             <nav class="flex gap-1 bg-surface-800 rounded-lg p-0.5 w-fit">
-              <button @click="switchTab('upstream')"
-                class="px-4 py-2 rounded-md text-sm font-medium transition-all"
-                :class="tab === 'upstream' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'">
-                Upstream
-              </button>
+              <template x-if="isAdmin">
+                <button @click="switchTab('upstream')"
+                  class="px-4 py-2 rounded-md text-sm font-medium transition-all"
+                  :class="tab === 'upstream' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'">
+                  Upstream
+                </button>
+              </template>
               <button @click="switchTab('keys')"
                 class="px-4 py-2 rounded-md text-sm font-medium transition-all"
                 :class="tab === 'keys' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'">
@@ -52,7 +55,8 @@ export function DashboardPage() {
 
         <main class="max-w-6xl mx-auto px-6 py-8">
 
-          <!-- ===================== TAB: UPSTREAM ===================== -->
+          <!-- ===================== TAB: UPSTREAM (admin only) ===================== -->
+          <template x-if="isAdmin">
           <div x-show="tab === 'upstream'" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100">
 
             <!-- GitHub Connection Banner -->
@@ -191,17 +195,17 @@ export function DashboardPage() {
             <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
               <!-- Account Info -->
               <div class="glass-card p-6 animate-in delay-4">
-                <div class="flex items-center justify-between mb-4">
-                  <h3 class="text-xs font-medium text-gray-500 uppercase tracking-widest">Account</h3>
-                  <button @click="logout()" class="btn-ghost text-xs">Logout</button>
-                </div>
+                <h3 class="text-xs font-medium text-gray-500 uppercase tracking-widest mb-4">Account</h3>
                 <template x-if="user">
-                  <div class="flex items-center gap-4">
-                    <img :src="user.avatar_url" class="w-12 h-12 rounded-xl ring-2 ring-white/5" />
-                    <div>
-                      <p class="text-white font-medium" x-text="user.name || user.login"></p>
-                      <p class="text-sm text-gray-500" x-text="'@' + user.login"></p>
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-4">
+                      <img :src="user.avatar_url" class="w-12 h-12 rounded-xl ring-2 ring-white/5" />
+                      <div>
+                        <p class="text-white font-medium" x-text="user.name || user.login"></p>
+                        <p class="text-sm text-gray-500" x-text="'@' + user.login"></p>
+                      </div>
                     </div>
+                    <button @click="disconnectGithub()" class="btn-ghost text-xs">Disconnect</button>
                   </div>
                 </template>
                 <template x-if="!user && githubConnected">
@@ -246,6 +250,7 @@ export function DashboardPage() {
               </div>
             </div>
           </div>
+          </template>
 
           <!-- ===================== TAB: API KEYS ===================== -->
           <div x-show="tab === 'keys'">
@@ -254,7 +259,7 @@ export function DashboardPage() {
             <div class="glass-card p-6 mb-6 animate-in">
               <div class="flex items-center justify-between mb-6">
                 <span class="text-xs font-medium text-gray-500 uppercase tracking-widest">API Keys</span>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2" x-show="isAdmin">
                   <input type="text" x-model="newKeyName" placeholder="Name" class="!text-xs !py-1.5 !px-3 !w-32 !rounded-lg" @keydown.enter="createNewKey()" />
                   <button @click="createNewKey()" class="btn-primary !text-xs !py-1.5 !px-3 !rounded-lg whitespace-nowrap" :disabled="!newKeyName.trim() || keyCreating">
                     <span x-show="!keyCreating">+ Create</span>
@@ -302,7 +307,7 @@ export function DashboardPage() {
                         <th class="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-widest">Name</th>
                         <th class="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-widest">Key</th>
                         <th class="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-widest">Created</th>
-                        <th class="text-right py-2 text-xs font-medium text-gray-500 uppercase tracking-widest">Actions</th>
+                        <th x-show="isAdmin" class="text-right py-2 text-xs font-medium text-gray-500 uppercase tracking-widest">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -317,7 +322,7 @@ export function DashboardPage() {
                           <td class="py-3 pr-4">
                             <span class="text-gray-500 text-xs" x-text="formatDate(k.created_at)"></span>
                           </td>
-                          <td class="py-3 text-right">
+                          <td x-show="isAdmin" class="py-3 text-right">
                             <div class="flex items-center justify-end gap-1">
                               <button @click="rotateKeyById(k.id, k.name)" class="text-gray-600 hover:text-accent-amber transition-colors p-1" :disabled="keyRotating === k.id" title="Rotate key">
                                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -518,8 +523,11 @@ export function DashboardPage() {
 
       <script>
         function dashboardApp() {
-          const TABS = ['upstream', 'keys', 'usage'];
-          const initTab = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'upstream';
+          const role = localStorage.getItem('role') || 'admin';
+          const isAdmin = role === 'admin';
+          const TABS = isAdmin ? ['upstream', 'keys', 'usage'] : ['keys', 'usage'];
+          const defaultTab = isAdmin ? 'upstream' : 'keys';
+          const initTab = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : defaultTab;
 
           // Claude tier order: opus=0, sonnet=1, haiku=2
           const CLAUDE_TIER = { opus: 0, sonnet: 1, haiku: 2 };
@@ -546,6 +554,8 @@ export function DashboardPage() {
 
           return {
             accessKey: '',
+            role,
+            isAdmin,
             tab: initTab,
 
             // Upstream
@@ -584,7 +594,7 @@ export function DashboardPage() {
 
             get baseUrl() { return location.origin; },
 
-            get activeKey() { return this.newKeyResult?.key || '<your-api-key>'; },
+            get activeKey() { return this.isAdmin ? (this.newKeyResult?.key || '<your-api-key>') : this.accessKey; },
 
             claudeCodeSnippet() {
               const lines = [
@@ -618,8 +628,10 @@ export function DashboardPage() {
               this.accessKey = localStorage.getItem('access_key') || '';
               if (!this.accessKey) { window.location.href = '/'; return; }
 
-              this.loadMe();
-              this.loadUsage();
+              if (this.isAdmin) {
+                this.loadMe();
+                this.loadUsage();
+              }
               this.loadModels();
               this.loadKeys().then(() => {
                 if (this.tab === 'usage') this.loadTokenUsage();
@@ -627,12 +639,12 @@ export function DashboardPage() {
               });
 
               setInterval(() => {
-                this.loadUsage();
+                if (this.isAdmin) this.loadUsage();
                 if (this.tab === 'usage') this.loadTokenUsage();
               }, 60000);
 
               window.addEventListener('hashchange', () => {
-                const h = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'upstream';
+                const h = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : defaultTab;
                 if (this.tab !== h) this.switchTab(h);
               });
             },
@@ -755,6 +767,18 @@ export function DashboardPage() {
             cancelDeviceFlow() {
               clearInterval(this.deviceFlow.pollTimer);
               Object.assign(this.deviceFlow, { pollTimer: null, userCode: null, verificationUri: null, deviceCode: null });
+            },
+
+            async disconnectGithub() {
+              if (!confirm('Disconnect GitHub account? You will need to reconnect to use Copilot API.')) return;
+              try {
+                await fetch('/auth/github/disconnect', { method: 'POST', headers: this.authHeaders() });
+                this.githubConnected = false;
+                this.user = null;
+                this.usageData = null;
+                this.usageError = false;
+                this.usagePercent = 0;
+              } catch (e) { console.error('disconnectGithub:', e); }
             },
 
             // ---- Key management ----
@@ -954,8 +978,8 @@ export function DashboardPage() {
             switchTokenRange(range) { this.tokenRange = range; this.loadTokenUsage(); },
 
             // ---- Common ----
-            logout() { localStorage.removeItem('access_key'); window.location.href = '/'; },
-            kickToLogin() { localStorage.removeItem('access_key'); window.location.href = '/'; }
+            logout() { localStorage.removeItem('access_key'); localStorage.removeItem('role'); localStorage.removeItem('login_key_id'); localStorage.removeItem('login_key_name'); localStorage.removeItem('login_key_hint'); window.location.href = '/'; },
+            kickToLogin() { localStorage.removeItem('access_key'); localStorage.removeItem('role'); localStorage.removeItem('login_key_id'); localStorage.removeItem('login_key_name'); localStorage.removeItem('login_key_hint'); window.location.href = '/'; }
           }
         }
       </script>`,
