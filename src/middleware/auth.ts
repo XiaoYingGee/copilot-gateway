@@ -2,7 +2,7 @@ import type { Context, Next } from "hono";
 import { getEnv } from "../lib/env.ts";
 import { validateApiKey } from "../lib/api-keys.ts";
 
-const PUBLIC_PATHS = new Set(["/", "/dashboard"]);
+const PUBLIC_PATHS = new Set(["/", "/dashboard", "/favicon.ico"]);
 const AUTH_VALIDATE_PATHS = new Set(["/auth/login"]);
 
 // ADMIN_KEY is only allowed on dashboard/management paths

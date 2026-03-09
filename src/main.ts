@@ -60,6 +60,7 @@ app.get("/", (c) => {
   return c.html(LoginPage());
 });
 app.get("/dashboard", (c) => c.html(DashboardPage()));
+app.get("/favicon.ico", () => new Response(null, { status: 204 }));
 
 // Control plane — dashboard API
 app.get("/api/copilot-quota", copilotQuota);
