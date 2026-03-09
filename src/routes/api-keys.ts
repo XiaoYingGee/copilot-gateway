@@ -1,7 +1,7 @@
 // API key management routes (admin-only)
 
 import type { Context } from "hono";
-import { createApiKey, listApiKeys, deleteApiKey } from "../lib/api-keys.ts";
+import { createApiKey, listApiKeys, deleteApiKey, rotateApiKey } from "../lib/api-keys.ts";
 
 function requireAdmin(c: Context): Response | null {
   if (c.get("apiKeyId") !== "admin") {
@@ -45,4 +45,14 @@ export const deleteKey = async (c: Context) => {
   const deleted = await deleteApiKey(id);
   if (!deleted) return c.json({ error: "Key not found" }, 404);
   return c.json({ ok: true });
+};
+
+export const rotateKey = async (c: Context) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+
+  const id = c.req.param("id") ?? "";
+  const key = await rotateApiKey(id);
+  if (!key) return c.json({ error: "Key not found" }, 404);
+  return c.json({ id: key.id, name: key.name, key: key.key, created_at: key.createdAt });
 };

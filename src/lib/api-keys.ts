@@ -34,6 +34,17 @@ export async function listApiKeys(): Promise<ApiKey[]> {
   return keys;
 }
 
+export async function rotateApiKey(id: string): Promise<ApiKey | null> {
+  const existing = await kv.get<ApiKey>(["api_keys", id]);
+  if (!existing.value) return null;
+  const updated: ApiKey = {
+    ...existing.value,
+    key: generateKey(),
+  };
+  await kv.set(["api_keys", id], updated);
+  return updated;
+}
+
 export async function deleteApiKey(id: string): Promise<boolean> {
   const existing = await kv.get(["api_keys", id]);
   if (!existing.value) return false;

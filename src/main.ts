@@ -36,7 +36,7 @@ import { authMiddleware } from "./middleware/auth.ts";
 import { usageMiddleware } from "./middleware/usage.ts";
 import { LoginPage } from "./ui/login.tsx";
 import { DashboardPage } from "./ui/dashboard.tsx";
-import { listKeys, createKey, deleteKey } from "./routes/api-keys.ts";
+import { listKeys, createKey, deleteKey, rotateKey } from "./routes/api-keys.ts";
 import { tokenUsage } from "./routes/token-usage.ts";
 
 const app = new Hono();
@@ -61,6 +61,7 @@ app.get("/api/usage", copilotQuota);
 app.get("/api/token-usage", tokenUsage);
 app.get("/api/keys", listKeys);
 app.post("/api/keys", createKey);
+app.post("/api/keys/:id/rotate", rotateKey);
 app.delete("/api/keys/:id", deleteKey);
 
 // OpenAI-compatible
