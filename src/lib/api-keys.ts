@@ -35,6 +35,14 @@ export async function listApiKeys(): Promise<ApiKey[]> {
   return keys;
 }
 
+export async function renameApiKey(id: string, name: string): Promise<ApiKey | null> {
+  const existing = await kv.get<ApiKey>(["api_keys", id]);
+  if (!existing.value) return null;
+  const updated: ApiKey = { ...existing.value, name };
+  await kv.set(["api_keys", id], updated);
+  return updated;
+}
+
 export async function rotateApiKey(id: string): Promise<ApiKey | null> {
   const existing = await kv.get<ApiKey>(["api_keys", id]);
   if (!existing.value) return null;

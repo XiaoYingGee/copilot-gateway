@@ -42,7 +42,7 @@ import { authMiddleware } from "./middleware/auth.ts";
 import { usageMiddleware } from "./middleware/usage.ts";
 import { LoginPage } from "./ui/login.tsx";
 import { DashboardPage } from "./ui/dashboard.tsx";
-import { listKeys, createKey, deleteKey, rotateKey } from "./routes/api-keys.ts";
+import { listKeys, createKey, deleteKey, rotateKey, renameKey } from "./routes/api-keys.ts";
 import { tokenUsage } from "./routes/token-usage.ts";
 
 const app = new Hono();
@@ -70,6 +70,7 @@ app.get("/api/models", models);
 app.get("/api/keys", listKeys);
 app.post("/api/keys", createKey);
 app.post("/api/keys/:id/rotate", rotateKey);
+app.patch("/api/keys/:id", renameKey);
 app.delete("/api/keys/:id", deleteKey);
 
 // Data plane — OpenAI-compatible

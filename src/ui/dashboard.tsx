@@ -379,6 +379,14 @@ export function DashboardPage() {
                                 <svg x-show="copied === 'key-' + k.id" class="w-4 h-4 text-accent-emerald" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
                               </button>
                               <template x-if="isAdmin">
+                                <button @click.stop="renameKeyById(k.id, k.name)" class="text-gray-600 hover:text-accent-violet transition-colors p-1" title="Rename key">
+                                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+                                    <path d="m15 5 4 4"/>
+                                  </svg>
+                                </button>
+                              </template>
+                              <template x-if="isAdmin">
                                 <button @click.stop="rotateKeyById(k.id, k.name)" class="text-gray-600 hover:text-accent-amber transition-colors p-1" :disabled="keyRotating === k.id" title="Rotate key">
                                   <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M21.5 2v6h-6"/>
@@ -977,6 +985,24 @@ export function DashboardPage() {
                 }
               } catch (e) { console.error('rotateKey:', e); }
               finally { this.keyRotating = null; }
+            },
+
+            async renameKeyById(id, currentName) {
+              const newName = prompt('Rename key:', currentName);
+              if (!newName || newName === currentName) return;
+              try {
+                const resp = await fetch('/api/keys/' + id, {
+                  method: 'PATCH',
+                  headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ name: newName }),
+                });
+                if (resp.status === 401) { this.kickToLogin(); return; }
+                if (resp.ok) {
+                  await this.loadKeys();
+                } else {
+                  alert((await resp.json()).error || 'Failed to rename key');
+                }
+              } catch (e) { console.error('renameKey:', e); }
             },
 
             async copySnippet(text, tag) {
