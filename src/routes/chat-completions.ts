@@ -11,7 +11,10 @@ import type {
   AnthropicStreamEventData,
 } from "../lib/anthropic-types.ts";
 import type { ChatCompletionsPayload } from "../lib/openai-types.ts";
-import { translateChatToMessages } from "../lib/translate/chat-to-messages.ts";
+import {
+  fetchRemoteImage,
+  translateChatToMessages,
+} from "../lib/translate/chat-to-messages.ts";
 import { translateMessagesToChatCompletion } from "../lib/translate/messages-to-chat.ts";
 import {
   createChatStreamState,
@@ -165,7 +168,9 @@ async function handleViaMessagesApi(
   githubToken: string,
   accountType: string,
 ): Promise<Response> {
-  const anthropicPayload = await translateChatToMessages(payload);
+  const anthropicPayload = await translateChatToMessages(payload, {
+    loadRemoteImage: fetchRemoteImage,
+  });
   const vision = hasVision(payload as unknown as Record<string, unknown>);
 
   const extraHeaders: Record<string, string> = {};

@@ -194,6 +194,7 @@ The `/responses` endpoint similarly:
 | `src/lib/models-cache.ts`                            | Model list caching and capability queries (L1 in-process 120s + L2 repo-backed 600s, keyed by account type + GitHub token hash) |
 | `src/lib/env.ts`                                     | Pluggable environment variable access (`initEnv`/`getEnv`)                                                                      |
 | `src/lib/sse.ts`                                     | SSE stream parsing async generator (`parseSSEStream`)                                                                           |
+| `src/lib/translate/chat-to-messages.ts`              | OpenAI Chat Completions → Anthropic Messages translation, with injectable remote image loading callback for tests               |
 | `src/lib/translate/openai.ts`                        | Anthropic ↔ OpenAI non-streaming translation                                                                                    |
 | `src/lib/translate/openai-stream.ts`                 | OpenAI SSE → Anthropic SSE streaming translation                                                                                |
 | `src/lib/translate/responses.ts`                     | Anthropic ↔ Responses bidirectional translation                                                                                 |

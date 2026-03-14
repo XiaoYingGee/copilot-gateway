@@ -1,5 +1,8 @@
 import { assertEquals, assertExists } from "@std/assert";
-import { translateChatToMessages } from "./chat-to-messages.ts";
+import {
+  type RemoteImageLoader,
+  translateChatToMessages,
+} from "./chat-to-messages.ts";
 import type { ChatCompletionsPayload } from "../openai-types.ts";
 import type {
   AnthropicAssistantContentBlock,
@@ -14,20 +17,38 @@ import type {
 
 // ── Helpers ──
 
-function mkPayload(overrides: Partial<ChatCompletionsPayload> & { messages: ChatCompletionsPayload["messages"] }): ChatCompletionsPayload {
+function mkPayload(
+  overrides: Partial<ChatCompletionsPayload> & {
+    messages: ChatCompletionsPayload["messages"];
+  },
+): ChatCompletionsPayload {
   return { model: "claude-sonnet-4", ...overrides };
 }
 
-function assistantBlocks(result: AnthropicMessagesPayload, msgIndex = 0): AnthropicAssistantContentBlock[] {
+function assistantBlocks(
+  result: AnthropicMessagesPayload,
+  msgIndex = 0,
+): AnthropicAssistantContentBlock[] {
   const msg = result.messages[msgIndex];
   assertEquals(msg.role, "assistant");
   return msg.content as AnthropicAssistantContentBlock[];
 }
 
-function userBlocks(result: AnthropicMessagesPayload, msgIndex = 0): AnthropicUserContentBlock[] {
+function userBlocks(
+  result: AnthropicMessagesPayload,
+  msgIndex = 0,
+): AnthropicUserContentBlock[] {
   const msg = result.messages[msgIndex];
   assertEquals(msg.role, "user");
-  return Array.isArray(msg.content) ? msg.content as AnthropicUserContentBlock[] : [{ type: "text", text: msg.content as string }];
+  return Array.isArray(msg.content)
+    ? msg.content as AnthropicUserContentBlock[]
+    : [{ type: "text", text: msg.content as string }];
+}
+
+function stubRemoteImageLoader(
+  result: Awaited<ReturnType<RemoteImageLoader>>,
+): RemoteImageLoader {
+  return () => Promise.resolve(result);
 }
 
 // ── System / Developer messages ──
@@ -78,7 +99,10 @@ Deno.test("empty system content is skipped", async () => {
 Deno.test("system with ContentPart array extracts text parts", async () => {
   const result = await translateChatToMessages(mkPayload({
     messages: [
-      { role: "system", content: [{ type: "text", text: "A" }, { type: "text", text: "B" }] },
+      {
+        role: "system",
+        content: [{ type: "text", text: "A" }, { type: "text", text: "B" }],
+      },
       { role: "user", content: "Hi" },
     ],
   }));
@@ -167,7 +191,15 @@ Deno.test("tool message creates user with tool_result block", async () => {
   const result = await translateChatToMessages(mkPayload({
     messages: [
       { role: "user", content: "Hi" },
-      { role: "assistant", content: "", tool_calls: [{ id: "tc1", type: "function", function: { name: "f", arguments: "{}" } }] },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{
+          id: "tc1",
+          type: "function",
+          function: { name: "f", arguments: "{}" },
+        }],
+      },
       { role: "tool", content: "result", tool_call_id: "tc1" },
     ],
   }));
@@ -184,10 +216,22 @@ Deno.test("multiple tool messages after assistant merged into one user", async (
   const result = await translateChatToMessages(mkPayload({
     messages: [
       { role: "user", content: "Hi" },
-      { role: "assistant", content: null, tool_calls: [
-        { id: "tc1", type: "function", function: { name: "f1", arguments: "{}" } },
-        { id: "tc2", type: "function", function: { name: "f2", arguments: "{}" } },
-      ] },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "tc1",
+            type: "function",
+            function: { name: "f1", arguments: "{}" },
+          },
+          {
+            id: "tc2",
+            type: "function",
+            function: { name: "f2", arguments: "{}" },
+          },
+        ],
+      },
       { role: "tool", content: "r1", tool_call_id: "tc1" },
       { role: "tool", content: "r2", tool_call_id: "tc2" },
     ],
@@ -204,7 +248,15 @@ Deno.test("tool + user merged: tool_results + text in same user msg", async () =
   const result = await translateChatToMessages(mkPayload({
     messages: [
       { role: "user", content: "Hi" },
-      { role: "assistant", content: null, tool_calls: [{ id: "tc1", type: "function", function: { name: "f", arguments: "{}" } }] },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [{
+          id: "tc1",
+          type: "function",
+          function: { name: "f", arguments: "{}" },
+        }],
+      },
       { role: "tool", content: "result", tool_call_id: "tc1" },
       { role: "user", content: "thanks" },
     ],
@@ -221,7 +273,15 @@ Deno.test("tool message without tool_call_id uses empty string", async () => {
   const result = await translateChatToMessages(mkPayload({
     messages: [
       { role: "user", content: "Hi" },
-      { role: "assistant", content: null, tool_calls: [{ id: "tc1", type: "function", function: { name: "f", arguments: "{}" } }] },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [{
+          id: "tc1",
+          type: "function",
+          function: { name: "f", arguments: "{}" },
+        }],
+      },
       { role: "tool", content: "result" },
     ],
   }));
@@ -240,7 +300,11 @@ Deno.test("assistant blocks ordered: thinking → text → tool_use", async () =
         content: "response text",
         reasoning_text: "I think...",
         reasoning_opaque: "sig123",
-        tool_calls: [{ id: "tc1", type: "function", function: { name: "search", arguments: '{"q":"x"}' } }],
+        tool_calls: [{
+          id: "tc1",
+          type: "function",
+          function: { name: "search", arguments: '{"q":"x"}' },
+        }],
       },
     ],
   }));
@@ -258,7 +322,11 @@ Deno.test("assistant with only tool_calls, no content", async () => {
       {
         role: "assistant",
         content: null,
-        tool_calls: [{ id: "tc1", type: "function", function: { name: "f", arguments: '{"a":1}' } }],
+        tool_calls: [{
+          id: "tc1",
+          type: "function",
+          function: { name: "f", arguments: '{"a":1}' },
+        }],
       },
     ],
   }));
@@ -277,8 +345,16 @@ Deno.test("assistant with multiple tool_calls", async () => {
         role: "assistant",
         content: null,
         tool_calls: [
-          { id: "tc1", type: "function", function: { name: "f1", arguments: '{"x":1}' } },
-          { id: "tc2", type: "function", function: { name: "f2", arguments: '{"y":2}' } },
+          {
+            id: "tc1",
+            type: "function",
+            function: { name: "f1", arguments: '{"x":1}' },
+          },
+          {
+            id: "tc2",
+            type: "function",
+            function: { name: "f2", arguments: '{"y":2}' },
+          },
         ],
       },
     ],
@@ -298,12 +374,18 @@ Deno.test("assistant tool_calls with invalid JSON arguments → raw_arguments fa
       {
         role: "assistant",
         content: null,
-        tool_calls: [{ id: "tc1", type: "function", function: { name: "f", arguments: "not json" } }],
+        tool_calls: [{
+          id: "tc1",
+          type: "function",
+          function: { name: "f", arguments: "not json" },
+        }],
       },
     ],
   }));
   const blocks = assistantBlocks(result, 1);
-  assertEquals((blocks[0] as AnthropicToolUseBlock).input, { raw_arguments: "not json" });
+  assertEquals((blocks[0] as AnthropicToolUseBlock).input, {
+    raw_arguments: "not json",
+  });
 });
 
 // ── Thinking / Redacted thinking ──
@@ -312,7 +394,12 @@ Deno.test("reasoning_text + reasoning_opaque → thinking block with signature",
   const result = await translateChatToMessages(mkPayload({
     messages: [
       { role: "user", content: "Hi" },
-      { role: "assistant", content: "resp", reasoning_text: "My thoughts", reasoning_opaque: "sig" },
+      {
+        role: "assistant",
+        content: "resp",
+        reasoning_text: "My thoughts",
+        reasoning_opaque: "sig",
+      },
     ],
   }));
   const blocks = assistantBlocks(result, 1);
@@ -365,7 +452,12 @@ Deno.test("null reasoning fields → no thinking block", async () => {
   const result = await translateChatToMessages(mkPayload({
     messages: [
       { role: "user", content: "Hi" },
-      { role: "assistant", content: "resp", reasoning_text: null, reasoning_opaque: null },
+      {
+        role: "assistant",
+        content: "resp",
+        reasoning_text: null,
+        reasoning_opaque: null,
+      },
     ],
   }));
   const blocks = assistantBlocks(result, 1);
@@ -381,7 +473,10 @@ Deno.test("image_url with data URL → base64 image block", async () => {
       role: "user",
       content: [
         { type: "text", text: "What is this?" },
-        { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } },
+        {
+          type: "image_url",
+          image_url: { url: "data:image/png;base64,iVBORw0KGgo=" },
+        },
       ],
     }],
   }));
@@ -389,24 +484,68 @@ Deno.test("image_url with data URL → base64 image block", async () => {
   assertEquals(blocks.length, 2);
   assertEquals(blocks[0].type, "text");
   assertEquals(blocks[1].type, "image");
-  const img = blocks[1] as { type: "image"; source: { type: string; media_type: string; data: string } };
+  const img = blocks[1] as {
+    type: "image";
+    source: { type: string; media_type: string; data: string };
+  };
   assertEquals(img.source.type, "base64");
   assertEquals(img.source.media_type, "image/png");
   assertEquals(img.source.data, "iVBORw0KGgo=");
 });
 
-Deno.test("image_url with non-fetchable URL → gracefully skipped", async () => {
-  const result = await translateChatToMessages(mkPayload({
-    messages: [{
-      role: "user",
-      content: [
-        { type: "text", text: "What?" },
-        { type: "image_url", image_url: { url: "http://127.0.0.1:1/nonexistent.png" } },
-      ],
-    }],
-  }));
+Deno.test("image_url with remote image loader → base64 image block", async () => {
+  const result = await translateChatToMessages(
+    mkPayload({
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: "What is this?" },
+          {
+            type: "image_url",
+            image_url: { url: "https://example.com/image.png" },
+          },
+        ],
+      }],
+    }),
+    {
+      loadRemoteImage: stubRemoteImageLoader({
+        mediaType: "image/png",
+        data: new Uint8Array([1, 2, 3]),
+      }),
+    },
+  );
   const blocks = userBlocks(result, 0);
-  // Image fetch fails → skipped, only text remains
+  assertEquals(blocks.length, 2);
+  assertEquals(blocks[0].type, "text");
+  assertEquals(blocks[1].type, "image");
+  const img = blocks[1] as {
+    type: "image";
+    source: { type: string; media_type: string; data: string };
+  };
+  assertEquals(img.source.type, "base64");
+  assertEquals(img.source.media_type, "image/png");
+  assertEquals(img.source.data, "AQID");
+});
+
+Deno.test("image_url with remote image loader failure → gracefully skipped", async () => {
+  const result = await translateChatToMessages(
+    mkPayload({
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: "What?" },
+          {
+            type: "image_url",
+            image_url: { url: "https://example.com/nonexistent.png" },
+          },
+        ],
+      }],
+    }),
+    {
+      loadRemoteImage: stubRemoteImageLoader(null),
+    },
+  );
+  const blocks = userBlocks(result, 0);
   assertEquals(blocks.length, 1);
   assertEquals(blocks[0].type, "text");
 });
@@ -416,7 +555,10 @@ Deno.test("image with jpeg media type", async () => {
     messages: [{
       role: "user",
       content: [
-        { type: "image_url", image_url: { url: "data:image/jpeg;base64,/9j/4AAQ=" } },
+        {
+          type: "image_url",
+          image_url: { url: "data:image/jpeg;base64,/9j/4AAQ=" },
+        },
       ],
     }],
   }));
@@ -585,7 +727,10 @@ Deno.test("tool_choice required → { type: any }", async () => {
 Deno.test("tool_choice specific function → { type: tool, name }", async () => {
   const result = await translateChatToMessages(mkPayload({
     messages: [{ role: "user", content: "Hi" }],
-    tools: [{ type: "function", function: { name: "get_weather", parameters: {} } }],
+    tools: [{
+      type: "function",
+      function: { name: "get_weather", parameters: {} },
+    }],
     tool_choice: { type: "function", function: { name: "get_weather" } },
   }));
   assertEquals(result.tool_choice, { type: "tool", name: "get_weather" });
@@ -609,7 +754,10 @@ Deno.test("tools translated correctly", async () => {
       function: {
         name: "get_weather",
         description: "Get weather",
-        parameters: { type: "object", properties: { city: { type: "string" } } },
+        parameters: {
+          type: "object",
+          properties: { city: { type: "string" } },
+        },
       },
     }],
   }));
@@ -617,7 +765,10 @@ Deno.test("tools translated correctly", async () => {
   assertEquals(result.tools!.length, 1);
   assertEquals(result.tools![0].name, "get_weather");
   assertEquals(result.tools![0].description, "Get weather");
-  assertEquals(result.tools![0].input_schema, { type: "object", properties: { city: { type: "string" } } });
+  assertEquals(result.tools![0].input_schema, {
+    type: "object",
+    properties: { city: { type: "string" } },
+  });
 });
 
 Deno.test("empty tools array → not set", async () => {
@@ -648,7 +799,11 @@ Deno.test("full tool use round-trip conversation", async () => {
       {
         role: "assistant",
         content: "Let me check.",
-        tool_calls: [{ id: "tc1", type: "function", function: { name: "get_weather", arguments: '{"city":"Tokyo"}' } }],
+        tool_calls: [{
+          id: "tc1",
+          type: "function",
+          function: { name: "get_weather", arguments: '{"city":"Tokyo"}' },
+        }],
       },
       { role: "tool", content: '{"temp":20}', tool_call_id: "tc1" },
       { role: "assistant", content: "It's 20 degrees in Tokyo." },
@@ -673,7 +828,11 @@ Deno.test("interleaved thinking round-trip", async () => {
         content: null,
         reasoning_text: "thinking1",
         reasoning_opaque: "sig1",
-        tool_calls: [{ id: "tc1", type: "function", function: { name: "calc", arguments: '{"x":1}' } }],
+        tool_calls: [{
+          id: "tc1",
+          type: "function",
+          function: { name: "calc", arguments: '{"x":1}' },
+        }],
       },
       { role: "tool", content: "42", tool_call_id: "tc1" },
       {

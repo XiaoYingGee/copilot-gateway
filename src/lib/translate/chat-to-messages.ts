@@ -19,33 +19,52 @@ import type {
 import { safeJsonParse } from "./utils.ts";
 
 const ALLOWED_IMAGE_TYPES = new Set([
-  "image/jpeg", "image/png", "image/gif", "image/webp",
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
 ]);
+
+export interface RemoteImageData {
+  mediaType: string | null;
+  data: Uint8Array;
+}
+
+export type RemoteImageLoader = (
+  url: string,
+) => Promise<RemoteImageData | null>;
+
+interface TranslateChatToMessagesOptions {
+  loadRemoteImage?: RemoteImageLoader;
+}
 
 export async function translateChatToMessages(
   payload: ChatCompletionsPayload,
+  options: TranslateChatToMessagesOptions = {},
 ): Promise<AnthropicMessagesPayload> {
   const systemParts: string[] = [];
   const nonSystemMessages: Message[] = [];
 
   for (const msg of payload.messages) {
     if (msg.role === "system" || msg.role === "developer") {
-      const text =
-        typeof msg.content === "string"
-          ? msg.content
-          : Array.isArray(msg.content)
-            ? msg.content
-                .filter((p): p is { type: "text"; text: string } => p.type === "text")
-                .map((p) => p.text)
-                .join("")
-            : "";
+      const text = typeof msg.content === "string"
+        ? msg.content
+        : Array.isArray(msg.content)
+        ? msg.content
+          .filter((p): p is { type: "text"; text: string } => p.type === "text")
+          .map((p) => p.text)
+          .join("")
+        : "";
       if (text) systemParts.push(text);
     } else {
       nonSystemMessages.push(msg);
     }
   }
 
-  const anthropicMessages = await buildMessages(nonSystemMessages);
+  const anthropicMessages = await buildMessages(
+    nonSystemMessages,
+    options.loadRemoteImage ?? fetchRemoteImage,
+  );
 
   const result: AnthropicMessagesPayload = {
     model: payload.model,
@@ -63,7 +82,9 @@ export async function translateChatToMessages(
     result.top_p = payload.top_p;
   }
   if (payload.stop != null) {
-    result.stop_sequences = Array.isArray(payload.stop) ? payload.stop : [payload.stop];
+    result.stop_sequences = Array.isArray(payload.stop)
+      ? payload.stop
+      : [payload.stop];
   }
   if (payload.stream) {
     result.stream = payload.stream;
@@ -75,19 +96,28 @@ export async function translateChatToMessages(
     result.tool_choice = translateToolChoice(payload.tool_choice);
   }
   if (payload.thinking_budget) {
-    result.thinking = { type: "enabled", budget_tokens: payload.thinking_budget };
+    result.thinking = {
+      type: "enabled",
+      budget_tokens: payload.thinking_budget,
+    };
   }
 
   return result;
 }
 
-async function buildMessages(messages: Message[]): Promise<AnthropicMessage[]> {
+async function buildMessages(
+  messages: Message[],
+  loadRemoteImage: RemoteImageLoader,
+): Promise<AnthropicMessage[]> {
   const result: AnthropicMessage[] = [];
 
   for (const msg of messages) {
     switch (msg.role) {
       case "user":
-        appendUserContent(result, await convertUserContent(msg));
+        appendUserContent(
+          result,
+          await convertUserContent(msg, loadRemoteImage),
+        );
         break;
       case "assistant":
         result.push({ role: "assistant", content: buildAssistantBlocks(msg) });
@@ -112,10 +142,20 @@ function appendUserContent(
 ): void {
   const last = result[result.length - 1];
   if (last?.role === "user") {
-    const existing = Array.isArray(last.content) ? last.content : [{ type: "text" as const, text: last.content as string }];
-    (last as { role: "user"; content: AnthropicUserContentBlock[] }).content = [...existing, ...blocks];
+    const existing = Array.isArray(last.content)
+      ? last.content
+      : [{ type: "text" as const, text: last.content as string }];
+    (last as { role: "user"; content: AnthropicUserContentBlock[] }).content = [
+      ...existing,
+      ...blocks,
+    ];
   } else {
-    result.push({ role: "user", content: blocks.length === 1 && blocks[0].type === "text" ? blocks[0].text : blocks });
+    result.push({
+      role: "user",
+      content: blocks.length === 1 && blocks[0].type === "text"
+        ? blocks[0].text
+        : blocks,
+    });
   }
 }
 
@@ -126,14 +166,22 @@ function appendToolResult(
 ): void {
   const last = result[result.length - 1];
   if (last?.role === "user") {
-    const existing = Array.isArray(last.content) ? last.content : [{ type: "text" as const, text: last.content as string }];
-    (last as { role: "user"; content: AnthropicUserContentBlock[] }).content = [...existing, toolResult];
+    const existing = Array.isArray(last.content)
+      ? last.content
+      : [{ type: "text" as const, text: last.content as string }];
+    (last as { role: "user"; content: AnthropicUserContentBlock[] }).content = [
+      ...existing,
+      toolResult,
+    ];
   } else {
     result.push({ role: "user", content: [toolResult] });
   }
 }
 
-async function convertUserContent(msg: Message): Promise<AnthropicUserContentBlock[]> {
+async function convertUserContent(
+  msg: Message,
+  loadRemoteImage: RemoteImageLoader,
+): Promise<AnthropicUserContentBlock[]> {
   if (typeof msg.content === "string") {
     return [{ type: "text", text: msg.content }];
   }
@@ -144,21 +192,31 @@ async function convertUserContent(msg: Message): Promise<AnthropicUserContentBlo
   const resolved = await Promise.all(
     (msg.content as ContentPart[]).map((part) => {
       if (part.type === "text") {
-        return Promise.resolve({ type: "text" as const, text: part.text } as AnthropicUserContentBlock);
+        return Promise.resolve(
+          {
+            type: "text" as const,
+            text: part.text,
+          } as AnthropicUserContentBlock,
+        );
       }
       if (part.type === "image_url") {
-        return resolveImage(part.image_url.url);
+        return resolveImage(part.image_url.url, loadRemoteImage);
       }
       return Promise.resolve(null);
     }),
   );
 
-  const blocks = resolved.filter((b): b is AnthropicUserContentBlock => b !== null);
+  const blocks = resolved.filter((b): b is AnthropicUserContentBlock =>
+    b !== null
+  );
   return blocks.length > 0 ? blocks : [{ type: "text", text: "" }];
 }
 
 /** Resolve an image URL to an Anthropic image block. Supports data: URLs and HTTP(S) fetch. */
-async function resolveImage(url: string): Promise<AnthropicImageBlock | null> {
+async function resolveImage(
+  url: string,
+  loadRemoteImage: RemoteImageLoader,
+): Promise<AnthropicImageBlock | null> {
   // Fast path: data: URL (no fetch needed)
   const dataUrl = parseDataUrl(url);
   if (dataUrl) {
@@ -167,7 +225,8 @@ async function resolveImage(url: string): Promise<AnthropicImageBlock | null> {
       type: "image",
       source: {
         type: "base64",
-        media_type: dataUrl.mediaType as AnthropicImageBlock["source"]["media_type"],
+        media_type: dataUrl
+          .mediaType as AnthropicImageBlock["source"]["media_type"],
         data: dataUrl.data,
       },
     };
@@ -175,28 +234,42 @@ async function resolveImage(url: string): Promise<AnthropicImageBlock | null> {
 
   // HTTP(S) fetch
   if (!url.startsWith("http://") && !url.startsWith("https://")) return null;
-  return await fetchImageAsBase64(url);
+  return await resolveRemoteImage(url, loadRemoteImage);
 }
 
-async function fetchImageAsBase64(url: string): Promise<AnthropicImageBlock | null> {
+async function resolveRemoteImage(
+  url: string,
+  loadRemoteImage: RemoteImageLoader,
+): Promise<AnthropicImageBlock | null> {
+  const image = await loadRemoteImage(url);
+  if (!image) return null;
+
+  let mediaType = image.mediaType?.split(";")[0].trim() ?? "";
+  if (!ALLOWED_IMAGE_TYPES.has(mediaType)) {
+    mediaType = inferMediaTypeFromUrl(url) ?? "";
+  }
+  if (!ALLOWED_IMAGE_TYPES.has(mediaType)) return null;
+
+  return {
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: mediaType as AnthropicImageBlock["source"]["media_type"],
+      data: uint8ArrayToBase64(image.data),
+    },
+  };
+}
+
+export async function fetchRemoteImage(
+  url: string,
+): Promise<RemoteImageData | null> {
   try {
     const resp = await fetch(url, { signal: AbortSignal.timeout(30_000) });
     if (!resp.ok) return null;
 
-    let mediaType = resp.headers.get("content-type")?.split(";")[0].trim() ?? "";
-    if (!ALLOWED_IMAGE_TYPES.has(mediaType)) {
-      mediaType = inferMediaTypeFromUrl(url) ?? "";
-    }
-    if (!ALLOWED_IMAGE_TYPES.has(mediaType)) return null;
-
-    const buffer = await resp.arrayBuffer();
     return {
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: mediaType as AnthropicImageBlock["source"]["media_type"],
-        data: uint8ArrayToBase64(new Uint8Array(buffer)),
-      },
+      mediaType: resp.headers.get("content-type"),
+      data: new Uint8Array(await resp.arrayBuffer()),
     };
   } catch {
     return null;
@@ -227,7 +300,10 @@ function buildAssistantBlocks(msg: Message): AnthropicAssistantContentBlock[] {
   const blocks: AnthropicAssistantContentBlock[] = [];
 
   // 1. thinking / redacted_thinking
-  const thinkingBlock = buildThinkingBlock(msg.reasoning_text, msg.reasoning_opaque);
+  const thinkingBlock = buildThinkingBlock(
+    msg.reasoning_text,
+    msg.reasoning_opaque,
+  );
   if (thinkingBlock) blocks.push(thinkingBlock);
 
   // 2. text
@@ -260,7 +336,10 @@ function buildThinkingBlock(
   reasoningOpaque: string | null | undefined,
 ): AnthropicThinkingBlock | AnthropicRedactedThinkingBlock | null {
   if (reasoningText) {
-    const block: AnthropicThinkingBlock = { type: "thinking", thinking: reasoningText };
+    const block: AnthropicThinkingBlock = {
+      type: "thinking",
+      thinking: reasoningText,
+    };
     if (reasoningOpaque) block.signature = reasoningOpaque;
     return block;
   }
