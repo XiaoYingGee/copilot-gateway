@@ -2,7 +2,6 @@ import { assertEquals } from "@std/assert";
 import {
   createChatStreamState,
   translateAnthropicEventToChatChunks,
-  type ChatStreamState,
 } from "./messages-to-chat-stream.ts";
 import type { AnthropicStreamEventData } from "../anthropic-types.ts";
 import type { ChatCompletionChunk, Delta } from "../openai-types.ts";

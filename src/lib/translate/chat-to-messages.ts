@@ -6,10 +6,8 @@ import type {
   AnthropicMessage,
   AnthropicMessagesPayload,
   AnthropicRedactedThinkingBlock,
-  AnthropicTextBlock,
   AnthropicThinkingBlock,
   AnthropicToolResultBlock,
-  AnthropicToolUseBlock,
   AnthropicUserContentBlock,
 } from "../anthropic-types.ts";
 import type {

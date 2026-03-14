@@ -4,7 +4,7 @@ import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { copilotFetch } from "../lib/copilot.ts";
 import { getGithubCredentials } from "../lib/github.ts";
-import { modelSupportsEndpoint, findModel } from "../lib/models-cache.ts";
+import { findModel } from "../lib/models-cache.ts";
 import { parseSSEStream } from "../lib/sse.ts";
 import type {
   AnthropicResponse,

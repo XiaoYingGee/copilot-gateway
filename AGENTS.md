@@ -46,6 +46,9 @@ DenoKvRepo (src/repo/deno.ts)  |  D1Repo (src/repo/d1.ts)
 - `src/ui/layout.tsx` — Shared HTML layout
 - `src/ui/dashboard.tsx` — Dashboard (admin: four tabs Upstream/API Keys/Usage/Settings; API key user: two tabs API Keys/Usage)
 
+**Testing helpers:**
+- `src/test-helpers.ts` — App-level integration test setup, repo/env initialization, and mocked fetch/SSE helpers
+
 ### Authentication & Authorization
 
 There are two roles: **admin** (logs in with `ADMIN_KEY`) and **API key user** (logs in with an API key created by admin).
@@ -152,6 +155,10 @@ deno test
 | File | Coverage |
 |------|----------|
 | `src/routes/data-transfer_test.ts` | Export structure, round-trip equivalence, import modes (merge/replace), validation |
+| `src/routes/messages_test.ts` | `/v1/messages` route integration: native/messages, chat-completions fallback, responses fallback, request workarounds |
+| `src/routes/responses_test.ts` | `/v1/responses` route integration: direct passthrough, reverse translation via Messages API, stream ID fix |
+| `src/app-control_test.ts` | Auth/authorization matrix: admin-only routes, API key visibility, public usage endpoint semantics |
+| `src/middleware/usage_test.ts` | Usage middleware for non-streaming and streaming proxy responses, plus `lastUsedAt` updates |
 
 ## Code Style Guidelines
 
