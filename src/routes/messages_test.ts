@@ -616,7 +616,7 @@ Deno.test("/v1/messages falls back to responses and preserves reasoning round-tr
     assertEquals(body.usage.input_tokens, 25);
     assertEquals(body.usage.cache_read_input_tokens, 5);
     assertEquals(body.content[0].type, "thinking");
-    assertEquals(body.content[0].signature, "enc_abc@rs_1");
+    assertEquals(body.content[0].signature, "enc_abc");
     assertEquals(body.content[1].text, "Answer text");
   });
 

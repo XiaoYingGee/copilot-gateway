@@ -2,7 +2,7 @@ import type { AnthropicStreamEventData } from "../anthropic-types.ts";
 import { THINKING_PLACEHOLDER } from "../anthropic-types.ts";
 import type { ResponseOutputReasoning, ResponsesResult, ResponseStreamEvent } from "../responses-types.ts";
 import { translateResponsesToAnthropic } from "./responses.ts";
-import { checkWhitespaceOverflow, encodeSignature } from "./utils.ts";
+import { checkWhitespaceOverflow } from "./utils.ts";
 
 export interface ResponsesStreamState {
   messageStartSent: boolean;
@@ -141,7 +141,7 @@ function handleOutputItemDone(
 
   const events: AnthropicStreamEventData[] = [];
   const blockIndex = openThinkingBlock(state, event.output_index, events);
-  const signature = encodeSignature(event.item.encrypted_content ?? "", event.item.id);
+  const signature = event.item.encrypted_content ?? "";
 
   if (!event.item.summary || event.item.summary.length === 0) {
     events.push({

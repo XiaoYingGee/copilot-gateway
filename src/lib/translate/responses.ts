@@ -30,8 +30,6 @@ import type {
   ResponseToolChoice,
 } from "../responses-types.ts";
 import {
-  decodeSignature,
-  isResponsesOriginSignature,
   safeJsonParse,
 } from "./utils.ts";
 
@@ -143,22 +141,16 @@ function translateAssistantMessage(
       continue;
     }
 
-    // Thinking blocks with "@" in signature originated from Responses API
-    if (
-      block.type === "thinking" && isResponsesOriginSignature(block.signature)
-    ) {
+    if (block.type === "thinking") {
       flushPendingContent(pendingContent, items, "assistant");
-      const { encryptedContent, reasoningId } = decodeSignature(
-        block.signature ?? "",
-      );
       const thinking = block.thinking === THINKING_PLACEHOLDER
         ? ""
         : block.thinking;
       items.push({
         type: "reasoning",
-        id: reasoningId ?? "",
+        id: `reasoning_${items.length}`,
         summary: thinking ? [{ type: "summary_text", text: thinking }] : [],
-        encrypted_content: encryptedContent ?? "",
+        encrypted_content: block.signature ?? "",
       });
       continue;
     }
@@ -283,7 +275,7 @@ function mapOutputToAnthropicContent(
           blocks.push({
             type: "thinking",
             thinking: thinkingText,
-            signature: (item.encrypted_content ?? "") + "@" + item.id,
+            signature: item.encrypted_content ?? "",
           });
         }
         break;
@@ -560,19 +552,16 @@ export function translateAnthropicToResponsesResult(
   for (const block of response.content) {
     switch (block.type) {
       case "thinking": {
-        const { encryptedContent, reasoningId } = decodeSignature(
-          block.signature ?? "",
-        );
         const summaryText = block.thinking === THINKING_PLACEHOLDER
           ? ""
           : block.thinking;
         output.push({
           type: "reasoning",
-          id: reasoningId ?? `reasoning_${output.length}`,
+          id: `reasoning_${output.length}`,
           summary: summaryText
             ? [{ type: "summary_text", text: summaryText }]
             : [],
-          encrypted_content: encryptedContent || undefined,
+          encrypted_content: block.signature || undefined,
         } as ResponseOutputReasoning);
         break;
       }

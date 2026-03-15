@@ -140,6 +140,87 @@ The Responses route selects one of two paths:
 - `count_tokens` uses tokenizer implementations when available and falls back
   to estimation on tokenizer load or runtime failure.
 
+## Translation-Induced Limitations
+
+Cross-format translation is inherently lossy. The following limitations are
+known and accepted trade-offs.
+
+### Messages ↔ Responses
+
+**Request parameters lost or approximated (Messages → Responses):**
+
+| Parameter        | Behavior                                                      |
+| ---------------- | ------------------------------------------------------------- |
+| `temperature`    | Hardcoded to `1` (reasoning models require it)                |
+| `budget_tokens`  | Discretized to `low`/`medium`/`high` effort; precision lost   |
+| `effort: "max"`  | Degraded to `"high"` (Responses API has no `"max"`)           |
+| `stop_sequences` | Dropped — no Responses API counterpart                        |
+| `top_k`          | Dropped — no Responses API counterpart                        |
+| `service_tier`   | Dropped — no Responses API counterpart                        |
+| `max_tokens`     | Floored to 12,800 (`Math.max`); original value lost if lower  |
+
+**Reasoning round-trip:**
+
+- `reasoning.id` is **not preserved** across translations. Anthropic thinking
+  blocks have no `id` field, and the API rejects extra fields on thinking
+  blocks (`Extra inputs are not permitted`). A synthetic id is generated each
+  time. This may cause Responses API prompt cache misses when the upstream
+  compares reasoning ids for cache key matching.
+  Ref: upstream [caozhiyuan/copilot-api](https://github.com/caozhiyuan/copilot-api)
+  uses `encrypted_content@id` encoding in `signature` to work around this, but
+  that corrupts the signature for native Anthropic API
+  ([#63](https://github.com/caozhiyuan/copilot-api/issues/63),
+  [#73](https://github.com/caozhiyuan/copilot-api/issues/73)).
+- `encrypted_content` is mapped directly to/from `signature`. These are the
+  same underlying opaque token from the model backend.
+
+### Messages ↔ Chat Completions
+
+**Request parameters lost or approximated (Messages → Chat Completions):**
+
+| Parameter        | Behavior                                                   |
+| ---------------- | ---------------------------------------------------------- |
+| `stop_sequences` | Mapped to `stop` — semantics preserved                     |
+| `top_k`          | Dropped — no Chat Completions counterpart                  |
+| `service_tier`   | Dropped — no Chat Completions counterpart                  |
+
+**Content structure:**
+
+- Multiple thinking blocks in assistant messages are merged into a single
+  `reasoning_text` + `reasoning_opaque`. Only the first signature is kept;
+  subsequent ones are lost.
+- Image blocks in assistant messages are silently dropped (Chat Completions
+  does not support assistant-side images).
+- Adjacent `tool_result` + `text` blocks are merged into a single
+  `tool_result` to reduce Copilot premium request credit consumption.
+
+**Response translation (Chat Completions → Messages):**
+
+- Multiple choices are merged into one Anthropic response. Choice separation
+  and index information is lost.
+- `output_tokens_details.reasoning_tokens` is dropped — Anthropic usage has
+  no counterpart for reasoning token breakdown.
+
+### Chat Completions → Messages (reverse, for `/v1/messages` fallback)
+
+- `message.name` field is dropped — no Anthropic counterpart.
+- Image `detail` level (`"low"` / `"high"` / `"auto"`) is dropped; all images
+  use default detail.
+- Remote image fetch failures are silent — the image is dropped with no error
+  reported to the client.
+- Non-standard image formats (SVG, HEIC, etc.) are silently rejected; only
+  `image/jpeg`, `image/png`, `image/gif`, `image/webp` are accepted.
+
+### Streaming-Specific
+
+- `signature_delta` events from Anthropic streams are captured but not
+  re-emitted as separate Responses stream events. The encrypted content is only
+  available in the final `output_item.done` event.
+- Responses API `summary_index` is always `0`. Multiple reasoning segments
+  within a single response cannot be distinguished.
+- `output_text` in the final Responses result is globally accumulated, not
+  per-item. Text from separate message output items is concatenated.
+
 ## Key Files
 
 - `src/routes/messages.ts`

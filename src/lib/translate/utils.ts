@@ -13,20 +13,6 @@ export function checkWhitespaceOverflow(text: string, currentCount: number): { c
   return { count: wsCount, exceeded: false };
 }
 
-export function encodeSignature(encryptedContent: string, reasoningId: string): string {
-  return `${encryptedContent}@${reasoningId}`;
-}
-
-export function decodeSignature(signature: string): { encryptedContent: string; reasoningId: string | undefined } {
-  const atIndex = signature.lastIndexOf("@");
-  if (atIndex === -1) return { encryptedContent: signature, reasoningId: undefined };
-  return { encryptedContent: signature.slice(0, atIndex), reasoningId: signature.slice(atIndex + 1) };
-}
-
-export function isResponsesOriginSignature(signature: string | undefined): boolean {
-  return signature?.includes("@") ?? false;
-}
-
 export function safeJsonParse(s: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(s);
@@ -42,7 +28,7 @@ import type { AnthropicMessagesPayload, AnthropicThinkingBlock } from "../anthro
 
 /**
  * Filter invalid thinking blocks for native Messages API.
- * Invalid: empty thinking, "Thinking..." placeholder, signatures with "@" (Responses API origin).
+ * Invalid: empty thinking, "Thinking..." placeholder.
  */
 export function filterThinkingBlocks(payload: AnthropicMessagesPayload): void {
   for (const msg of payload.messages) {
@@ -51,7 +37,6 @@ export function filterThinkingBlocks(payload: AnthropicMessagesPayload): void {
         if (block.type !== "thinking") return true;
         const tb = block as AnthropicThinkingBlock;
         if (!tb.thinking || tb.thinking === "Thinking...") return false;
-        if (tb.signature?.includes("@")) return false;
         return true;
       });
     }

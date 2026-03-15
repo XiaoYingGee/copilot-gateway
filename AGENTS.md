@@ -243,8 +243,7 @@ deno test
   function signature)
 - **Keep** workaround notes (e.g.
   `XXX: Copilot API doesn't support custom tool type`), non-obvious design
-  decisions (e.g. detecting `@` in signatures to distinguish Responses API
-  origin), and magic number annotations
+  decisions, and magic number annotations
 - Do not write section divider comments (e.g. `// ── Request ──`); organize code
   through function grouping and file separation instead
 
@@ -318,7 +317,7 @@ This is the primary client-facing API (Claude Code uses it). Key spec points:
 | Concern                   | Handling                                                                                                                                                                                                                                                                                                                                                                                           |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | System/developer messages | Responses input items with `role: "system"/"developer"` are collected and concatenated into Anthropic top-level `system` field (Anthropic doesn't support system messages in `messages[]`)                                                                                                                                                                                                         |
-| Reasoning blocks          | Responses `reasoning` items use `encrypted_content@id` signature format — decoded via `@` separator. Blocks with `@` in signature are filtered before forwarding to native Messages API (they're GPT-generated, not valid Anthropic signatures). Ref: [caozhiyuan/copilot-api#63](https://github.com/caozhiyuan/copilot-api/issues/63), [#73](https://github.com/caozhiyuan/copilot-api/issues/73) |
+| Reasoning blocks          | Responses `reasoning` items map `encrypted_content` directly to Anthropic `signature` (they are the same underlying opaque token). The `reasoning.id` is not preserved — a synthetic id is generated each time (may affect prompt cache). See `TRANSLATION.md` for details. Ref: [caozhiyuan/copilot-api#63](https://github.com/caozhiyuan/copilot-api/issues/63), [#73](https://github.com/caozhiyuan/copilot-api/issues/73) |
 | Thinking placeholder      | Empty thinking blocks use `"Thinking..."` placeholder to preserve structure (some clients filter blocks with empty thinking text). Ref: [caozhiyuan/copilot-api `THINKING_TEXT`](https://github.com/caozhiyuan/copilot-api/blob/all/src/routes/messages/stream-translation.ts)                                                                                                                     |
 
 ### OpenAI Responses API
@@ -424,8 +423,6 @@ Copilot doesn't support `web_search` tool type. We filter it out and delete the
 Before forwarding to native `/v1/messages`, invalid thinking blocks are removed:
 
 - Empty thinking or `"Thinking..."` placeholder
-- Signatures containing `@` (indicates Responses API / GPT origin, not valid
-  Anthropic signatures)
 
 ### 5. `anthropic-beta` header whitelist
 

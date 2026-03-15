@@ -16,7 +16,6 @@ import type {
   ResponseOutputMessage,
   ResponseOutputReasoning,
 } from "../responses-types.ts";
-import { decodeSignature } from "./utils.ts";
 
 type OutputBlockInfo =
   | { type: "thinking"; outputIndex: number; itemId: string; thinkingText: string; signature: string }
@@ -187,18 +186,16 @@ function handleContentBlockStop(event: AnthropicContentBlockStopEvent, state: An
   const events: ResponseStreamEvent[] = [];
 
   if (info.type === "thinking") {
-    const { encryptedContent, reasoningId } = decodeSignature(info.signature);
     const summaryText = info.thinkingText === THINKING_PLACEHOLDER ? "" : info.thinkingText;
-    const finalItemId = reasoningId ?? info.itemId;
 
     if (summaryText) {
-      events.push({ type: "response.reasoning_summary_text.done", item_id: finalItemId, output_index: info.outputIndex, summary_index: 0, text: summaryText });
+      events.push({ type: "response.reasoning_summary_text.done", item_id: info.itemId, output_index: info.outputIndex, summary_index: 0, text: summaryText });
     }
-    events.push({ type: "response.reasoning_summary_part.done", item_id: finalItemId, output_index: info.outputIndex, summary_index: 0, part: { type: "summary_text", text: summaryText } });
+    events.push({ type: "response.reasoning_summary_part.done", item_id: info.itemId, output_index: info.outputIndex, summary_index: 0, part: { type: "summary_text", text: summaryText } });
     const item: ResponseOutputReasoning = {
-      type: "reasoning", id: finalItemId,
+      type: "reasoning", id: info.itemId,
       summary: summaryText ? [{ type: "summary_text", text: summaryText }] : [],
-      encrypted_content: encryptedContent || undefined,
+      encrypted_content: info.signature || undefined,
     };
     state.completedItems.push(item);
     events.push({ type: "response.output_item.done", output_index: info.outputIndex, item });
