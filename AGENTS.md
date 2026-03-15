@@ -174,8 +174,12 @@ which API the model supports (queried from `GET /models` →
    directly
 2. **Chat Completions translation** — model only supports `/chat/completions` →
    bidirectional OpenAI↔Anthropic translation
-3. **Responses translation** — model only supports `/responses` → bidirectional
+3. **Responses translation** — model supports `/responses` but not `/chat/completions` → bidirectional
    Responses↔Anthropic translation
+
+Anthropic tool `strict` is forwarded as-is on native `/v1/messages`. The gateway
+does not silently drop `strict` and does not reroute strict Messages requests to
+`/chat/completions`; upstream `400` responses are returned to the client.
 
 The `/responses` endpoint similarly:
 
@@ -439,7 +443,15 @@ excluded for adaptive thinking.
 The `service_tier` field is removed from Anthropic payloads before forwarding —
 Copilot does not support it.
 
-### 7. Infinite whitespace in function call arguments
+### 7. Native Messages stream `[DONE]` filtering
+
+**File**: `src/routes/messages.ts`
+
+Some Copilot native `/v1/messages` streams include an OpenAI-style trailing
+`data: [DONE]` sentinel. Anthropic-compatible clients do not expect this, so
+the proxy strips it and leaves the rest of the Anthropic SSE stream unchanged.
+
+### 8. Infinite whitespace in function call arguments
 
 **File**: `src/lib/translate/utils.ts` · **Ref**:
 [caozhiyuan/copilot-api `MAX_CONSECUTIVE_FUNCTION_CALL_WHITESPACE`](https://github.com/caozhiyuan/copilot-api/blob/all/src/routes/messages/responses-stream-translation.ts)
@@ -449,7 +461,7 @@ newlines/whitespace until `max_tokens`. We track consecutive whitespace
 characters (`\r`, `\n`, `\t`) and abort the stream with an error if >20
 consecutive are detected. Spaces are excluded from the count.
 
-### 8. Stream ID inconsistency in Responses API
+### 9. Stream ID inconsistency in Responses API
 
 **File**: `src/routes/responses.ts` · **Ref**:
 [caozhiyuan/copilot-api `stream-id-sync.ts`](https://github.com/caozhiyuan/copilot-api/blob/all/src/routes/responses/stream-id-sync.ts)
@@ -458,14 +470,6 @@ Copilot returns different `item.id` values between `response.output_item.added`
 and `response.output_item.done` events for the same output item. This breaks
 `@ai-sdk/openai` (used by OpenCode). We track the original ID from `.added` and
 force it onto `.done`.
-
-### 9. Adaptive thinking auto-enable
-
-**File**: `src/routes/messages.ts`
-
-When the model's capabilities include `adaptive_thinking`, we automatically set
-`thinking: { type: "adaptive" }` and default `effort: "high"`. This enables
-reasoning for models that support it without requiring client configuration.
 
 ### 10. Chat Completions split choices for Claude models
 

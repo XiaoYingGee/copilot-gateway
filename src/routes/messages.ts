@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import { copilotFetch, type CopilotFetchOptions } from "../lib/copilot.ts";
 import { getGithubCredentials } from "../lib/github.ts";
-import { findModel, modelSupportsEndpoint } from "../lib/models-cache.ts";
+import { modelSupportsEndpoint } from "../lib/models-cache.ts";
 import type {
   AnthropicMessagesPayload,
   AnthropicStreamState,
@@ -121,6 +121,7 @@ function contextWindowErrorResponse(c: Context) {
 export const messages = async (c: Context) => {
   try {
     const payload = await c.req.json<AnthropicMessagesPayload>();
+
     const { token: githubToken, accountType } = await getGithubCredentials();
 
     // Strip web_search tools — Copilot doesn't support them
@@ -143,14 +144,6 @@ export const messages = async (c: Context) => {
       githubToken,
       accountType,
     );
-    if (supportsMessages) {
-      return await handleNativeMessages(c, payload, githubToken, accountType, {
-        vision,
-        initiator,
-        rawBeta,
-      });
-    }
-
     const supportsResponses = await modelSupportsEndpoint(
       payload.model,
       "/responses",
@@ -163,6 +156,14 @@ export const messages = async (c: Context) => {
       githubToken,
       accountType,
     );
+
+    if (supportsMessages) {
+      return await handleNativeMessages(c, payload, githubToken, accountType, {
+        vision,
+        initiator,
+        rawBeta,
+      });
+    }
 
     if (supportsResponses && !supportsChatCompletions) {
       return await handleWithResponses(c, payload, githubToken, accountType, {
@@ -180,7 +181,7 @@ export const messages = async (c: Context) => {
   }
 };
 
-async function handleNativeMessages(
+function handleNativeMessages(
   c: Context,
   payload: AnthropicMessagesPayload,
   githubToken: string,
@@ -188,14 +189,6 @@ async function handleNativeMessages(
   opts: { vision: boolean; initiator: "user" | "agent"; rawBeta?: string },
 ): Promise<Response> {
   filterThinkingBlocks(payload);
-
-  const model = await findModel(payload.model, githubToken, accountType);
-  if (model?.capabilities?.supports?.adaptive_thinking) {
-    payload.thinking = { type: "adaptive" };
-    if (!payload.output_config?.effort) {
-      payload.output_config = { effort: "high" };
-    }
-  }
 
   const isAdaptive = payload.thinking?.type === "adaptive";
   let anthropicBeta = filterAnthropicBeta(opts.rawBeta, isAdaptive);
@@ -255,7 +248,10 @@ async function forwardMessages(
 
   if (!resp.body) return noUpstreamBodyAnthropicErrorResponse(c);
 
-  return proxySSE(c, resp.body, undefined, "Native messages");
+  return proxySSE(c, resp.body, (event, data) => {
+    if (data.trim() === "[DONE]") return null;
+    return [{ event: event || undefined, data }];
+  }, "Native messages");
 }
 
 async function handleTranslated(

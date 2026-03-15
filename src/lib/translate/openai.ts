@@ -103,7 +103,10 @@ function mergeToolResultBlocks(payload: AnthropicMessagesPayload): void {
     for (const block of msg.content) {
       if (block.type === "tool_result") toolResults.push(block);
       else if (block.type === "text") textBlocks.push(block);
-      else { valid = false; break; }
+      else {
+        valid = false;
+        break;
+      }
     }
 
     if (!valid || toolResults.length === 0 || textBlocks.length === 0) continue;
@@ -121,11 +124,11 @@ function translateMessages(
 ): Message[] {
   const systemMsgs: Message[] = system
     ? [{
-        role: "system",
-        content: typeof system === "string"
-          ? system
-          : system.map((b) => b.text).join("\n\n"),
-      }]
+      role: "system",
+      content: typeof system === "string"
+        ? system
+        : system.map((b) => b.text).join("\n\n"),
+    }]
     : [];
 
   return [
@@ -142,11 +145,17 @@ function handleUser(msg: AnthropicUserMessage): Message[] {
   }
 
   const result: Message[] = [];
-  const toolResults = msg.content.filter((b): b is AnthropicToolResultBlock => b.type === "tool_result");
+  const toolResults = msg.content.filter((b): b is AnthropicToolResultBlock =>
+    b.type === "tool_result"
+  );
   const others = msg.content.filter((b) => b.type !== "tool_result");
 
   for (const tr of toolResults) {
-    result.push({ role: "tool", tool_call_id: tr.tool_use_id, content: mapContent(tr.content) });
+    result.push({
+      role: "tool",
+      tool_call_id: tr.tool_use_id,
+      content: mapContent(tr.content),
+    });
   }
   if (others.length > 0) {
     result.push({ role: "user", content: mapContent(others) });
@@ -159,9 +168,15 @@ function handleAssistant(msg: AnthropicAssistantMessage): Message[] {
     return [{ role: "assistant", content: mapContent(msg.content) }];
   }
 
-  const toolUses = msg.content.filter((b): b is AnthropicToolUseBlock => b.type === "tool_use");
-  const texts = msg.content.filter((b): b is AnthropicTextBlock => b.type === "text");
-  const thinking = msg.content.filter((b): b is AnthropicThinkingBlock => b.type === "thinking");
+  const toolUses = msg.content.filter((b): b is AnthropicToolUseBlock =>
+    b.type === "tool_use"
+  );
+  const texts = msg.content.filter((b): b is AnthropicTextBlock =>
+    b.type === "text"
+  );
+  const thinking = msg.content.filter((b): b is AnthropicThinkingBlock =>
+    b.type === "thinking"
+  );
 
   const textContent = texts.map((b) => b.text).join("\n\n");
   const reasoningText = thinking.map((b) => b.thinking).join("\n\n") || null;
@@ -189,7 +204,9 @@ function handleAssistant(msg: AnthropicAssistantMessage): Message[] {
 }
 
 function mapContent(
-  content: string | (AnthropicUserContentBlock | AnthropicAssistantContentBlock)[],
+  content:
+    | string
+    | (AnthropicUserContentBlock | AnthropicAssistantContentBlock)[],
 ): string | ContentPart[] | null {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return null;
@@ -208,18 +225,27 @@ function mapContent(
     } else if (block.type === "image") {
       parts.push({
         type: "image_url",
-        image_url: { url: `data:${block.source.media_type};base64,${block.source.data}` },
+        image_url: {
+          url: `data:${block.source.media_type};base64,${block.source.data}`,
+        },
       });
     }
   }
   return parts;
 }
 
-function translateTools(tools?: AnthropicMessagesPayload["tools"]): Tool[] | undefined {
+function translateTools(
+  tools?: AnthropicMessagesPayload["tools"],
+): Tool[] | undefined {
   if (!tools) return undefined;
   return tools.map((t) => ({
     type: "function",
-    function: { name: t.name, description: t.description, parameters: t.input_schema },
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.input_schema,
+      ...(t.strict !== undefined ? { strict: t.strict } : {}),
+    },
   }));
 }
 
@@ -228,11 +254,18 @@ function translateToolChoice(
 ): ChatCompletionsPayload["tool_choice"] {
   if (!tc) return undefined;
   switch (tc.type) {
-    case "auto": return "auto";
-    case "any": return "required";
-    case "tool": return tc.name ? { type: "function", function: { name: tc.name } } : undefined;
-    case "none": return "none";
-    default: return undefined;
+    case "auto":
+      return "auto";
+    case "any":
+      return "required";
+    case "tool":
+      return tc.name
+        ? { type: "function", function: { name: tc.name } }
+        : undefined;
+    case "none":
+      return "none";
+    default:
+      return undefined;
   }
 }
 
@@ -243,10 +276,18 @@ function getThinkingBlocks(
   reasoningOpaque: string | null | undefined,
 ): AnthropicThinkingBlock[] {
   if (reasoningText && reasoningText.length > 0) {
-    return [{ type: "thinking", thinking: reasoningText, signature: reasoningOpaque ?? "" }];
+    return [{
+      type: "thinking",
+      thinking: reasoningText,
+      signature: reasoningOpaque ?? "",
+    }];
   }
   if (reasoningOpaque && reasoningOpaque.length > 0) {
-    return [{ type: "thinking", thinking: THINKING_PLACEHOLDER, signature: reasoningOpaque }];
+    return [{
+      type: "thinking",
+      thinking: THINKING_PLACEHOLDER,
+      signature: reasoningOpaque,
+    }];
   }
   return [];
 }
@@ -261,7 +302,10 @@ export function translateToAnthropic(
 
   for (const choice of resp.choices) {
     allThinkingBlocks.push(
-      ...getThinkingBlocks(choice.message.reasoning_text, choice.message.reasoning_opaque),
+      ...getThinkingBlocks(
+        choice.message.reasoning_text,
+        choice.message.reasoning_opaque,
+      ),
     );
 
     if (choice.message.content) {
@@ -271,7 +315,12 @@ export function translateToAnthropic(
     if (choice.message.tool_calls) {
       for (const tc of choice.message.tool_calls) {
         const input = safeJsonParse(tc.function.arguments);
-        allToolBlocks.push({ type: "tool_use", id: tc.id, name: tc.function.name, input });
+        allToolBlocks.push({
+          type: "tool_use",
+          id: tc.id,
+          name: tc.function.name,
+          input,
+        });
       }
     }
 

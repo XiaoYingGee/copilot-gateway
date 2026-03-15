@@ -87,6 +87,7 @@ export interface AnthropicTool {
   name: string;
   description?: string;
   input_schema: Record<string, unknown>;
+  strict?: boolean;
 }
 
 export interface AnthropicResponse {
@@ -127,11 +128,13 @@ export type AnthropicStreamEventData =
 
 export interface AnthropicMessageStartEvent {
   type: "message_start";
-  message: Omit<AnthropicResponse, "content" | "stop_reason" | "stop_sequence"> & {
-    content: [];
-    stop_reason: null;
-    stop_sequence: null;
-  };
+  message:
+    & Omit<AnthropicResponse, "content" | "stop_reason" | "stop_sequence">
+    & {
+      content: [];
+      stop_reason: null;
+      stop_sequence: null;
+    };
 }
 
 export interface AnthropicContentBlockStartEvent {
@@ -139,7 +142,9 @@ export interface AnthropicContentBlockStartEvent {
   index: number;
   content_block:
     | { type: "text"; text: string }
-    | (Omit<AnthropicToolUseBlock, "input"> & { input: Record<string, unknown> })
+    | (Omit<AnthropicToolUseBlock, "input"> & {
+      input: Record<string, unknown>;
+    })
     | { type: "thinking"; thinking: string }
     | { type: "redacted_thinking"; data: string };
 }

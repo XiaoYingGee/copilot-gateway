@@ -6,10 +6,10 @@ import type {
   AnthropicMessagesPayload,
   AnthropicResponse,
   AnthropicTextBlock,
+  AnthropicTool,
   AnthropicToolResultBlock,
   AnthropicUserContentBlock,
   AnthropicUserMessage,
-  AnthropicTool,
 } from "../anthropic-types.ts";
 import { THINKING_PLACEHOLDER } from "../anthropic-types.ts";
 
@@ -29,7 +29,11 @@ import type {
   ResponseTool,
   ResponseToolChoice,
 } from "../responses-types.ts";
-import { decodeSignature, isResponsesOriginSignature, safeJsonParse } from "./utils.ts";
+import {
+  decodeSignature,
+  isResponsesOriginSignature,
+  safeJsonParse,
+} from "./utils.ts";
 
 // ── Request: Anthropic → Responses ──
 
@@ -39,7 +43,9 @@ function mapReasoningEffort(
   if (payload.output_config?.effort) {
     const effort = payload.output_config.effort;
     if (effort === "max") return "high";
-    if (effort === "low" || effort === "medium" || effort === "high") return effort;
+    if (effort === "low" || effort === "medium" || effort === "high") {
+      return effort;
+    }
   }
   if (payload.thinking?.budget_tokens) {
     const budget = payload.thinking.budget_tokens;
@@ -55,9 +61,10 @@ export function translateAnthropicToResponses(
 ): ResponsesPayload {
   return {
     model: payload.model,
-    input: typeof payload.messages === "undefined" || payload.messages.length === 0
-      ? []
-      : payload.messages.flatMap((m) => translateMessage(m, payload.model)),
+    input:
+      typeof payload.messages === "undefined" || payload.messages.length === 0
+        ? []
+        : payload.messages.flatMap((m) => translateMessage(m, payload.model)),
     instructions: translateSystemPrompt(payload.system),
     temperature: 1, // reasoning models use temperature 1
     top_p: payload.top_p ?? null,
@@ -73,8 +80,13 @@ export function translateAnthropicToResponses(
   };
 }
 
-function translateMessage(msg: AnthropicMessage, _model: string): ResponseInputItem[] {
-  return msg.role === "user" ? translateUserMessage(msg) : translateAssistantMessage(msg);
+function translateMessage(
+  msg: AnthropicMessage,
+  _model: string,
+): ResponseInputItem[] {
+  return msg.role === "user"
+    ? translateUserMessage(msg)
+    : translateAssistantMessage(msg);
 }
 
 function translateUserMessage(msg: AnthropicUserMessage): ResponseInputItem[] {
@@ -92,7 +104,9 @@ function translateUserMessage(msg: AnthropicUserMessage): ResponseInputItem[] {
       items.push({
         type: "function_call_output",
         call_id: block.tool_use_id,
-        output: typeof block.content === "string" ? block.content : JSON.stringify(block.content),
+        output: typeof block.content === "string"
+          ? block.content
+          : JSON.stringify(block.content),
         status: block.is_error ? "incomplete" : "completed",
       });
       continue;
@@ -105,7 +119,9 @@ function translateUserMessage(msg: AnthropicUserMessage): ResponseInputItem[] {
   return items;
 }
 
-function translateAssistantMessage(msg: AnthropicAssistantMessage): ResponseInputItem[] {
+function translateAssistantMessage(
+  msg: AnthropicAssistantMessage,
+): ResponseInputItem[] {
   if (typeof msg.content === "string") {
     return [{ type: "message", role: "assistant", content: msg.content }];
   }
@@ -128,10 +144,16 @@ function translateAssistantMessage(msg: AnthropicAssistantMessage): ResponseInpu
     }
 
     // Thinking blocks with "@" in signature originated from Responses API
-    if (block.type === "thinking" && isResponsesOriginSignature(block.signature)) {
+    if (
+      block.type === "thinking" && isResponsesOriginSignature(block.signature)
+    ) {
       flushPendingContent(pendingContent, items, "assistant");
-      const { encryptedContent, reasoningId } = decodeSignature(block.signature ?? "");
-      const thinking = block.thinking === THINKING_PLACEHOLDER ? "" : block.thinking;
+      const { encryptedContent, reasoningId } = decodeSignature(
+        block.signature ?? "",
+      );
+      const thinking = block.thinking === THINKING_PLACEHOLDER
+        ? ""
+        : block.thinking;
       items.push({
         type: "reasoning",
         id: reasoningId ?? "",
@@ -150,7 +172,9 @@ function translateAssistantMessage(msg: AnthropicAssistantMessage): ResponseInpu
   return items;
 }
 
-function translateUserContentBlock(block: AnthropicUserContentBlock): ResponseInputContent | undefined {
+function translateUserContentBlock(
+  block: AnthropicUserContentBlock,
+): ResponseInputContent | undefined {
   if (block.type === "text") return { type: "input_text", text: block.text };
   if (block.type === "image") {
     return {
@@ -172,44 +196,57 @@ function flushPendingContent(
   pending.length = 0;
 }
 
-function translateSystemPrompt(system: string | AnthropicTextBlock[] | undefined): string | null {
+function translateSystemPrompt(
+  system: string | AnthropicTextBlock[] | undefined,
+): string | null {
   if (!system) return null;
   if (typeof system === "string") return system;
   const text = system.map((b) => b.text).join(" ");
   return text.length > 0 ? text : null;
 }
 
-function translateTools(tools?: AnthropicMessagesPayload["tools"]): ResponseTool[] | null {
+function translateTools(
+  tools?: AnthropicMessagesPayload["tools"],
+): ResponseTool[] | null {
   if (!tools || tools.length === 0) return null;
   return tools.map((t) => ({
     type: "function",
     name: t.name,
     parameters: t.input_schema,
-    strict: false,
+    strict: t.strict ?? false,
     ...(t.description ? { description: t.description } : {}),
   }));
 }
 
-function translateToolChoice(choice?: AnthropicMessagesPayload["tool_choice"]): ResponseToolChoice {
+function translateToolChoice(
+  choice?: AnthropicMessagesPayload["tool_choice"],
+): ResponseToolChoice {
   if (!choice) return "auto";
   switch (choice.type) {
-    case "auto": return "auto";
-    case "any": return "required";
-    case "tool": return choice.name ? { type: "function", name: choice.name } : "auto";
-    case "none": return "none";
-    default: return "auto";
+    case "auto":
+      return "auto";
+    case "any":
+      return "required";
+    case "tool":
+      return choice.name ? { type: "function", name: choice.name } : "auto";
+    case "none":
+      return "none";
+    default:
+      return "auto";
   }
 }
 
 // ── Response: Responses → Anthropic ──
 
-export function translateResponsesToAnthropic(response: ResponsesResult): AnthropicResponse {
+export function translateResponsesToAnthropic(
+  response: ResponsesResult,
+): AnthropicResponse {
   const contentBlocks = mapOutputToAnthropicContent(response.output);
   const finalContent = contentBlocks.length > 0
     ? contentBlocks
     : response.output_text
-      ? [{ type: "text" as const, text: response.output_text }]
-      : [];
+    ? [{ type: "text" as const, text: response.output_text }]
+    : [];
 
   const inputTokens = response.usage?.input_tokens ?? 0;
   const cachedTokens = response.usage?.input_tokens_details?.cached_tokens;
@@ -225,12 +262,15 @@ export function translateResponsesToAnthropic(response: ResponsesResult): Anthro
     usage: {
       input_tokens: inputTokens - (cachedTokens ?? 0),
       output_tokens: response.usage?.output_tokens ?? 0,
-      ...(cachedTokens !== undefined && { cache_read_input_tokens: cachedTokens }),
+      ...(cachedTokens !== undefined &&
+        { cache_read_input_tokens: cachedTokens }),
     },
   };
 }
 
-function mapOutputToAnthropicContent(output: ResponseOutputItem[]): AnthropicAssistantContentBlock[] {
+function mapOutputToAnthropicContent(
+  output: ResponseOutputItem[],
+): AnthropicAssistantContentBlock[] {
   const blocks: AnthropicAssistantContentBlock[] = [];
 
   for (const item of output) {
@@ -253,13 +293,19 @@ function mapOutputToAnthropicContent(output: ResponseOutputItem[]): AnthropicAss
           let input: Record<string, unknown> = {};
           try {
             const parsed = JSON.parse(item.arguments);
-            input = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+            input = typeof parsed === "object" && parsed !== null &&
+                !Array.isArray(parsed)
               ? parsed
               : { raw_arguments: item.arguments };
           } catch {
             input = { raw_arguments: item.arguments };
           }
-          blocks.push({ type: "tool_use", id: item.call_id, name: item.name, input });
+          blocks.push({
+            type: "tool_use",
+            id: item.call_id,
+            name: item.name,
+            input,
+          });
         }
         break;
       }
@@ -274,7 +320,9 @@ function mapOutputToAnthropicContent(output: ResponseOutputItem[]): AnthropicAss
   return blocks;
 }
 
-function combineMessageTextContent(content: ResponseOutputContentBlock[] | undefined): string {
+function combineMessageTextContent(
+  content: ResponseOutputContentBlock[] | undefined,
+): string {
   if (!Array.isArray(content)) return "";
   return content
     .map((block) => {
@@ -285,11 +333,18 @@ function combineMessageTextContent(content: ResponseOutputContentBlock[] | undef
     .join("");
 }
 
-function mapResponsesStopReason(response: ResponsesResult): AnthropicResponse["stop_reason"] {
+function mapResponsesStopReason(
+  response: ResponsesResult,
+): AnthropicResponse["stop_reason"] {
   if (response.status === "completed") {
-    return response.output.some((item) => item.type === "function_call") ? "tool_use" : "end_turn";
+    return response.output.some((item) => item.type === "function_call")
+      ? "tool_use"
+      : "end_turn";
   }
-  if (response.status === "incomplete" && response.incomplete_details?.reason === "max_output_tokens") {
+  if (
+    response.status === "incomplete" &&
+    response.incomplete_details?.reason === "max_output_tokens"
+  ) {
     return "max_tokens";
   }
   return null;
@@ -297,8 +352,12 @@ function mapResponsesStopReason(response: ResponsesResult): AnthropicResponse["s
 
 // ── Request: Responses → Anthropic (reverse translation) ──
 
-export function translateResponsesToAnthropicPayload(payload: ResponsesPayload): AnthropicMessagesPayload {
-  const { messages, systemParts } = responsesInputToAnthropicMessages(payload.input);
+export function translateResponsesToAnthropicPayload(
+  payload: ResponsesPayload,
+): AnthropicMessagesPayload {
+  const { messages, systemParts } = responsesInputToAnthropicMessages(
+    payload.input,
+  );
 
   const allSystemParts: string[] = [];
   if (payload.instructions) allSystemParts.push(payload.instructions);
@@ -314,13 +373,20 @@ export function translateResponsesToAnthropicPayload(payload: ResponsesPayload):
     stream: payload.stream ?? undefined,
     tools: reverseTranslateTools(payload.tools),
     tool_choice: reverseTranslateToolChoice(payload.tool_choice),
-    metadata: payload.metadata ? { ...payload.metadata } as { user_id?: string } : undefined,
+    metadata: payload.metadata
+      ? { ...payload.metadata } as { user_id?: string }
+      : undefined,
   };
 }
 
-function responsesInputToAnthropicMessages(input: string | ResponseInputItem[]): { messages: AnthropicMessage[]; systemParts: string[] } {
+function responsesInputToAnthropicMessages(
+  input: string | ResponseInputItem[],
+): { messages: AnthropicMessage[]; systemParts: string[] } {
   if (typeof input === "string") {
-    return { messages: [{ role: "user" as const, content: input }], systemParts: [] };
+    return {
+      messages: [{ role: "user" as const, content: input }],
+      systemParts: [],
+    };
   }
 
   const messages: AnthropicMessage[] = [];
@@ -333,13 +399,15 @@ function responsesInputToAnthropicMessages(input: string | ResponseInputItem[]):
           const text = typeof item.content === "string"
             ? item.content
             : Array.isArray(item.content)
-              ? item.content.map((c) => "text" in c ? c.text : "").join("")
-              : "";
+            ? item.content.map((c) => "text" in c ? c.text : "").join("")
+            : "";
           if (text) systemParts.push(text);
           continue;
         }
         if (item.role === "user") messages.push(reverseUserMessage(item));
-        else if (item.role === "assistant") messages.push(reverseAssistantMessage(item));
+        else if (item.role === "assistant") {
+          messages.push(reverseAssistantMessage(item));
+        }
         break;
       }
       case "function_call": {
@@ -361,7 +429,8 @@ function responsesInputToAnthropicMessages(input: string | ResponseInputItem[]):
         break;
       }
       case "reasoning": {
-        const thinkingText = item.summary?.map((s) => s.text).join("") || THINKING_PLACEHOLDER;
+        const thinkingText = item.summary?.map((s) => s.text).join("") ||
+          THINKING_PLACEHOLDER;
         appendToAssistant(messages, {
           type: "thinking",
           thinking: thinkingText,
@@ -376,7 +445,9 @@ function responsesInputToAnthropicMessages(input: string | ResponseInputItem[]):
 }
 
 function reverseUserMessage(msg: ResponseInputMessage): AnthropicUserMessage {
-  if (typeof msg.content === "string") return { role: "user", content: msg.content };
+  if (typeof msg.content === "string") {
+    return { role: "user", content: msg.content };
+  }
   if (!Array.isArray(msg.content)) return { role: "user", content: "" };
 
   const blocks: AnthropicUserContentBlock[] = [];
@@ -402,8 +473,12 @@ function reverseUserMessage(msg: ResponseInputMessage): AnthropicUserMessage {
   return { role: "user", content: blocks.length > 0 ? blocks : "" };
 }
 
-function reverseAssistantMessage(msg: ResponseInputMessage): AnthropicAssistantMessage {
-  if (typeof msg.content === "string") return { role: "assistant", content: msg.content };
+function reverseAssistantMessage(
+  msg: ResponseInputMessage,
+): AnthropicAssistantMessage {
+  if (typeof msg.content === "string") {
+    return { role: "assistant", content: msg.content };
+  }
   if (!Array.isArray(msg.content)) return { role: "assistant", content: "" };
 
   const blocks: AnthropicAssistantContentBlock[] = [];
@@ -416,7 +491,10 @@ function reverseAssistantMessage(msg: ResponseInputMessage): AnthropicAssistantM
   return { role: "assistant", content: blocks.length > 0 ? blocks : "" };
 }
 
-function appendToAssistant(messages: AnthropicMessage[], block: AnthropicAssistantContentBlock): void {
+function appendToAssistant(
+  messages: AnthropicMessage[],
+  block: AnthropicAssistantContentBlock,
+): void {
   const last = messages[messages.length - 1];
   if (last?.role === "assistant" && Array.isArray(last.content)) {
     (last.content as AnthropicAssistantContentBlock[]).push(block);
@@ -425,7 +503,10 @@ function appendToAssistant(messages: AnthropicMessage[], block: AnthropicAssista
   }
 }
 
-function appendToUser(messages: AnthropicMessage[], block: AnthropicToolResultBlock): void {
+function appendToUser(
+  messages: AnthropicMessage[],
+  block: AnthropicToolResultBlock,
+): void {
   const last = messages[messages.length - 1];
   if (last?.role === "user" && Array.isArray(last.content)) {
     (last.content as AnthropicUserContentBlock[]).push(block);
@@ -434,44 +515,63 @@ function appendToUser(messages: AnthropicMessage[], block: AnthropicToolResultBl
   }
 }
 
-function reverseTranslateTools(tools: ResponseTool[] | null): AnthropicTool[] | undefined {
+function reverseTranslateTools(
+  tools: ResponseTool[] | null,
+): AnthropicTool[] | undefined {
   if (!tools || tools.length === 0) return undefined;
   return tools.map((t) => ({
     name: t.name,
     description: t.description,
     input_schema: t.parameters,
+    strict: t.strict,
   }));
 }
 
-function reverseTranslateToolChoice(choice?: ResponseToolChoice): AnthropicMessagesPayload["tool_choice"] {
+function reverseTranslateToolChoice(
+  choice?: ResponseToolChoice,
+): AnthropicMessagesPayload["tool_choice"] {
   if (!choice) return undefined;
   if (typeof choice === "string") {
     switch (choice) {
-      case "auto": return { type: "auto" };
-      case "none": return { type: "none" };
-      case "required": return { type: "any" };
-      default: return undefined;
+      case "auto":
+        return { type: "auto" };
+      case "none":
+        return { type: "none" };
+      case "required":
+        return { type: "any" };
+      default:
+        return undefined;
     }
   }
-  if (choice.type === "function" && choice.name) return { type: "tool", name: choice.name };
+  if (choice.type === "function" && choice.name) {
+    return { type: "tool", name: choice.name };
+  }
   return undefined;
 }
 
 // ── Response: Anthropic → Responses (reverse translation) ──
 
-export function translateAnthropicToResponsesResult(response: AnthropicResponse): ResponsesResult {
+export function translateAnthropicToResponsesResult(
+  response: AnthropicResponse,
+): ResponsesResult {
   const output: ResponseOutputItem[] = [];
   let outputText = "";
 
   for (const block of response.content) {
     switch (block.type) {
       case "thinking": {
-        const { encryptedContent, reasoningId } = decodeSignature(block.signature ?? "");
-        const summaryText = block.thinking === THINKING_PLACEHOLDER ? "" : block.thinking;
+        const { encryptedContent, reasoningId } = decodeSignature(
+          block.signature ?? "",
+        );
+        const summaryText = block.thinking === THINKING_PLACEHOLDER
+          ? ""
+          : block.thinking;
         output.push({
           type: "reasoning",
           id: reasoningId ?? `reasoning_${output.length}`,
-          summary: summaryText ? [{ type: "summary_text", text: summaryText }] : [],
+          summary: summaryText
+            ? [{ type: "summary_text", text: summaryText }]
+            : [],
           encrypted_content: encryptedContent || undefined,
         } as ResponseOutputReasoning);
         break;
@@ -501,7 +601,8 @@ export function translateAnthropicToResponsesResult(response: AnthropicResponse)
     } as ResponseOutputMessage);
   }
 
-  const inputTokens = response.usage.input_tokens + (response.usage.cache_read_input_tokens ?? 0);
+  const inputTokens = response.usage.input_tokens +
+    (response.usage.cache_read_input_tokens ?? 0);
 
   return {
     id: response.id,
@@ -518,12 +619,16 @@ export function translateAnthropicToResponsesResult(response: AnthropicResponse)
       output_tokens: response.usage.output_tokens,
       total_tokens: inputTokens + response.usage.output_tokens,
       ...(response.usage.cache_read_input_tokens !== undefined && {
-        input_tokens_details: { cached_tokens: response.usage.cache_read_input_tokens },
+        input_tokens_details: {
+          cached_tokens: response.usage.cache_read_input_tokens,
+        },
       }),
     },
   };
 }
 
-function mapAnthropicStatus(response: AnthropicResponse): ResponsesResult["status"] {
+function mapAnthropicStatus(
+  response: AnthropicResponse,
+): ResponsesResult["status"] {
   return response.stop_reason === "max_tokens" ? "incomplete" : "completed";
 }

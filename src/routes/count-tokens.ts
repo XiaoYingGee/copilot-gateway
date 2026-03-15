@@ -6,6 +6,21 @@ type TokenCountFn = (text: string) => number;
 let anthropicTokenizer: TokenCountFn | null = null;
 let gptTokenizer: TokenCountFn | null = null;
 
+export function setAnthropicTokenizerForTest(
+  tokenizer: TokenCountFn | null,
+): void {
+  anthropicTokenizer = tokenizer;
+}
+
+export function setGptTokenizerForTest(tokenizer: TokenCountFn | null): void {
+  gptTokenizer = tokenizer;
+}
+
+export function resetTokenizersForTest(): void {
+  anthropicTokenizer = null;
+  gptTokenizer = null;
+}
+
 async function getAnthropicTokenizer(): Promise<TokenCountFn> {
   if (anthropicTokenizer) return anthropicTokenizer;
   const mod = await import("@anthropic-ai/tokenizer");
@@ -24,12 +39,20 @@ const estimateTokens: TokenCountFn = (text) => Math.ceil(text.length / 3.5);
 
 async function getTokenCounter(model: string): Promise<TokenCountFn> {
   if (model.startsWith("claude")) {
-    try { return await getAnthropicTokenizer(); }
-    catch (e) { console.warn("Failed to load Anthropic tokenizer, using estimation:", e); return estimateTokens; }
+    try {
+      return await getAnthropicTokenizer();
+    } catch (e) {
+      console.warn("Failed to load Anthropic tokenizer, using estimation:", e);
+      return estimateTokens;
+    }
   }
   if (/^(gpt|o[1-9]|codex)/.test(model)) {
-    try { return await getGptTokenizer(); }
-    catch (e) { console.warn("Failed to load GPT tokenizer, using estimation:", e); return estimateTokens; }
+    try {
+      return await getGptTokenizer();
+    } catch (e) {
+      console.warn("Failed to load GPT tokenizer, using estimation:", e);
+      return estimateTokens;
+    }
   }
   return estimateTokens;
 }
@@ -48,9 +71,14 @@ function extractPayloadText(payload: AnthropicMessagesPayload): string {
     } else if (Array.isArray(msg.content)) {
       for (const block of msg.content) {
         if (block.type === "text") parts.push(block.text);
-        else if (block.type === "thinking" && "thinking" in block) parts.push(block.thinking);
-        else if (block.type === "tool_use" && "input" in block) parts.push(JSON.stringify(block.input));
-        else if (block.type === "tool_result" && "content" in block && typeof block.content === "string") parts.push(block.content);
+        else if (block.type === "thinking" && "thinking" in block) {
+          parts.push(block.thinking);
+        } else if (block.type === "tool_use" && "input" in block) {
+          parts.push(JSON.stringify(block.input));
+        } else if (
+          block.type === "tool_result" && "content" in block &&
+          typeof block.content === "string"
+        ) parts.push(block.content);
       }
     }
   }
@@ -66,9 +94,19 @@ function extractPayloadText(payload: AnthropicMessagesPayload): string {
   return parts.join("\n");
 }
 
-async function countPayloadTokens(payload: AnthropicMessagesPayload): Promise<number> {
+async function countPayloadTokens(
+  payload: AnthropicMessagesPayload,
+): Promise<number> {
   const countFn = await getTokenCounter(payload.model);
-  let total = countFn(extractPayloadText(payload));
+  const text = extractPayloadText(payload);
+  let total: number;
+
+  try {
+    total = countFn(text);
+  } catch (e) {
+    console.warn("Tokenizer failed during execution, using estimation:", e);
+    total = estimateTokens(text);
+  }
 
   // Structural overhead: role markers, message boundaries (~4 tokens each)
   total += payload.messages.length * 4;
@@ -92,6 +130,11 @@ export const countTokens = async (c: Context) => {
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("Error counting tokens:", msg);
-    return c.json({ error: { type: "invalid_request_error", message: `Failed to count tokens: ${msg}` } }, 400);
+    return c.json({
+      error: {
+        type: "invalid_request_error",
+        message: `Failed to count tokens: ${msg}`,
+      },
+    }, 400);
   }
 };
