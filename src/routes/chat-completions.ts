@@ -1,4 +1,4 @@
-// POST /v1/chat/completions — passthrough or translate via Messages API
+// POST /v1/chat/completions — passthrough, translate via Messages API, or via Responses API
 
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -10,12 +10,14 @@ import {
   isSSEResponse,
   reassembleAnthropicSSE,
   reassembleChatCompletionsSSE,
+  reassembleResponsesSSE,
 } from "../lib/sse-reassemble.ts";
 import type {
   AnthropicResponse,
   AnthropicStreamEventData,
 } from "../lib/anthropic-types.ts";
 import type { ChatCompletionsPayload } from "../lib/openai-types.ts";
+import type { ResponseStreamEvent } from "../lib/responses-types.ts";
 import {
   fetchRemoteImage,
   translateChatToMessages,
@@ -25,6 +27,12 @@ import {
   createChatStreamState,
   translateAnthropicEventToChatChunks,
 } from "../lib/translate/messages-to-chat-stream.ts";
+import {
+  createResponsesToChatStreamState,
+  translateChatToResponses,
+  translateResponsesEventToChatChunks,
+  translateResponsesToChatCompletion,
+} from "../lib/translate/chat-to-responses.ts";
 import {
   apiErrorResponse,
   getErrorMessage,
@@ -135,10 +143,19 @@ export const chatCompletions = async (c: Context) => {
     const body = await c.req.json();
     const { token: githubToken, accountType } = await getGithubCredentials();
 
-    if (
-      await shouldUseMessagesApi(body.model ?? "", githubToken, accountType)
-    ) {
+    const route = await decideRoute(body.model ?? "", githubToken, accountType);
+
+    if (route === "messages") {
       return await handleViaMessagesApi(
+        c,
+        body as ChatCompletionsPayload,
+        githubToken,
+        accountType,
+      );
+    }
+
+    if (route === "responses") {
+      return await handleViaResponsesApi(
         c,
         body as ChatCompletionsPayload,
         githubToken,
@@ -152,19 +169,21 @@ export const chatCompletions = async (c: Context) => {
   }
 };
 
-async function shouldUseMessagesApi(
+async function decideRoute(
   modelId: string,
   githubToken: string,
   accountType: string,
-): Promise<boolean> {
+): Promise<"messages" | "responses" | "completions"> {
   const model = await findModel(modelId, githubToken, accountType);
   if (model) {
-    const supportsMessages =
-      model.supported_endpoints?.includes("/v1/messages") ?? false;
-    return supportsMessages;
+    const endpoints = model.supported_endpoints ?? [];
+    if (endpoints.includes("/v1/messages")) return "messages";
+    if (endpoints.includes("/chat/completions")) return "completions";
+    if (endpoints.includes("/responses")) return "responses";
+    return "completions";
   }
   // Fallback when models cache is unavailable
-  return modelId.startsWith("claude");
+  return modelId.startsWith("claude") ? "messages" : "completions";
 }
 
 async function handleViaMessagesApi(
@@ -240,6 +259,83 @@ async function handleViaMessagesApi(
       for (const chunk of result) {
         await stream.writeSSE({ data: JSON.stringify(chunk) });
       }
+    }
+  });
+}
+
+async function handleViaResponsesApi(
+  c: Context,
+  payload: ChatCompletionsPayload,
+  githubToken: string,
+  accountType: string,
+): Promise<Response> {
+  const responsesPayload = translateChatToResponses(payload);
+  const vision = hasVision(payload as unknown as Record<string, unknown>);
+  const wantsStream = !!payload.stream;
+
+  // Always stream upstream to avoid blocking on large responses
+  responsesPayload.stream = true;
+
+  const resp = await copilotFetch(
+    "/responses",
+    { method: "POST", body: JSON.stringify(responsesPayload) },
+    githubToken,
+    accountType,
+    { vision },
+  );
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    return apiErrorResponse(c, `Upstream error: ${resp.status} ${text}`, 502);
+  }
+
+  // Non-streaming
+  if (!wantsStream) {
+    let result;
+    if (resp.body && isSSEResponse(resp)) {
+      result = await reassembleResponsesSSE(resp.body);
+    } else {
+      result = await resp.json();
+    }
+    return c.json(translateResponsesToChatCompletion(result));
+  }
+
+  // Streaming
+  if (!resp.body) return noUpstreamBodyApiErrorResponse(c);
+
+  return streamSSE(c, async (stream) => {
+    const state = createResponsesToChatStreamState();
+
+    for await (const rawEvent of parseSSEStream(resp.body!)) {
+      if (!rawEvent.data) continue;
+
+      let eventData: ResponseStreamEvent;
+      try {
+        eventData = JSON.parse(rawEvent.data) as ResponseStreamEvent;
+      } catch {
+        continue;
+      }
+
+      // Attach event name if not present in data
+      if (rawEvent.event && !eventData.type) {
+        eventData = { ...eventData, type: rawEvent.event };
+      }
+
+      const result = translateResponsesEventToChatChunks(eventData, state);
+
+      if (result === "DONE") {
+        await stream.writeSSE({ data: "[DONE]" });
+        break;
+      }
+
+      for (const chunk of result) {
+        await stream.writeSSE({ data: JSON.stringify(chunk) });
+      }
+    }
+
+    // Ensure [DONE] is always sent
+    if (!state.done) {
+      await stream.writeSSE({ data: "[DONE]" });
     }
   });
 }

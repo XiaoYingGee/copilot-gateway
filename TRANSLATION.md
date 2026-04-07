@@ -132,6 +132,59 @@ The Responses route selects one of two paths:
 2. Reverse translation through Anthropic Messages if the model only supports
    `/v1/messages`
 
+## `/v1/chat/completions` Routing
+
+File: `src/routes/chat-completions.ts`
+
+The Chat Completions route selects one of three paths:
+
+1. Messages translation
+   If the model supports `/v1/messages`, translate Chat Completions ↔ Anthropic
+   Messages (reuses the Messages translation layer).
+2. Direct passthrough
+   If the model supports `/chat/completions`, forward the request directly.
+3. Responses translation
+   If the model only supports `/responses`, translate Chat Completions ↔
+   Responses directly (no Anthropic intermediate).
+
+## Chat Completions ↔ Responses Translation
+
+File: `src/lib/translate/chat-to-responses.ts`
+
+This path is used when a model accessed via `/chat/completions` only supports
+the `/responses` endpoint. Translation is direct — no Anthropic intermediate
+format.
+
+### Chat Completions → Responses (request)
+
+- system/developer messages → `instructions`
+- user messages → Responses `message` input items
+- assistant text → `output_text` content blocks
+- assistant `tool_calls` → separate `function_call` input items
+- `reasoning_text`/`reasoning_opaque` → `reasoning` input items
+- tool messages → `function_call_output` input items
+- tools → Responses `function` tools
+- `thinking_budget` → discretized `reasoning.effort`
+
+### Responses → Chat Completions (response)
+
+- `message` output items → `content` string
+- `function_call` output items → `tool_calls` array
+- `reasoning` output items → `reasoning_text` / `reasoning_opaque`
+- status mapping: `completed` → `stop`/`tool_calls`, `incomplete` → `length`
+
+### Streaming (Responses → Chat Completions)
+
+Responses SSE events are translated directly to Chat Completions chunks:
+
+- `response.created` → initial chunk with `role: "assistant"`
+- `response.output_text.delta` → `content` delta
+- `response.function_call_arguments.delta` → `tool_calls` arguments delta
+- `response.reasoning_summary_text.delta` → `reasoning_text` delta
+- `response.output_item.done` (reasoning) → `reasoning_opaque` (signature)
+- `response.completed`/`response.incomplete` → final chunk with
+  `finish_reason` + `usage`
+
 ## Key Current Constraints
 
 - Native Anthropic-compatible streams must not expose `[DONE]`.
@@ -211,6 +264,21 @@ known and accepted trade-offs.
 - Non-standard image formats (SVG, HEIC, etc.) are silently rejected; only
   `image/jpeg`, `image/png`, `image/gif`, `image/webp` are accepted.
 
+### Chat Completions ↔ Responses
+
+**Request parameters lost or approximated (Chat Completions → Responses):**
+
+| Parameter        | Behavior                                                      |
+| ---------------- | ------------------------------------------------------------- |
+| `stop`           | Dropped — no Responses API counterpart                        |
+| `thinking_budget`| Discretized to `low`/`medium`/`high` effort; precision lost   |
+
+**Reasoning round-trip:**
+
+- `reasoning_text`/`reasoning_opaque` from Chat Completions history are mapped
+  to Responses `reasoning` input items and back, preserving `encrypted_content`
+  for signature round-tripping.
+
 ### Streaming-Specific
 
 - `signature_delta` events from Anthropic streams are captured but not
@@ -230,6 +298,7 @@ known and accepted trade-offs.
 - `src/lib/translate/openai.ts`
 - `src/lib/translate/openai-stream.ts`
 - `src/lib/translate/chat-to-messages.ts`
+- `src/lib/translate/chat-to-responses.ts`
 - `src/lib/translate/responses.ts`
 - `src/lib/translate/responses-stream.ts`
 - `src/lib/translate/anthropic-to-responses-stream.ts`

@@ -8,7 +8,7 @@ Copilot Gateway translates between API formats on the fly:
 
 - **Claude Code** talks Anthropic Messages API → Gateway translates to whatever Copilot supports for that model
 - **Codex CLI** talks OpenAI Responses API → Gateway translates or passes through accordingly
-- **Any OpenAI-compatible client** can use the Chat Completions endpoint directly
+- **Any OpenAI-compatible client** can use the Chat Completions endpoint — Gateway translates to Messages or Responses API as needed
 
 The gateway auto-detects each model's supported endpoints (native Messages, Responses, or Chat Completions) and picks the best translation path — no model names are hardcoded.
 

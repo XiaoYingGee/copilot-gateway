@@ -126,7 +126,7 @@ All OpenAI-compatible routes are registered at both `/v1/xxx` and `/xxx` paths
 | `POST /v1/messages`              | `src/routes/messages.ts`         | Anthropic Messages API compatible endpoint, three translation paths |
 | `POST /v1/messages/count_tokens` | `src/routes/count-tokens.ts`     | Token counting                                                      |
 | `POST /v1/responses`             | `src/routes/responses.ts`        | OpenAI Responses API endpoint                                       |
-| `POST /v1/chat/completions`      | `src/routes/chat-completions.ts` | OpenAI Chat Completions passthrough                                 |
+| `POST /v1/chat/completions`      | `src/routes/chat-completions.ts` | OpenAI Chat Completions, three translation paths                    |
 | `GET /v1/models`                 | `src/routes/models.ts`           | Model listing                                                       |
 | `POST /v1/embeddings`            | `src/routes/embeddings.ts`       | Embeddings passthrough                                              |
 
@@ -187,6 +187,14 @@ The `/responses` endpoint similarly:
 2. **Reverse translation** — model only supports `/v1/messages` →
    Responses↔Anthropic translation
 
+The `/chat/completions` endpoint similarly:
+
+1. **Messages translation** — model supports `/v1/messages` → translate
+   Chat↔Anthropic (reuses the Messages translation layer)
+2. **Direct passthrough** — model supports `/chat/completions` natively
+3. **Responses translation** — model only supports `/responses` → direct
+   Chat↔Responses translation (no Anthropic intermediate)
+
 ### Core Libraries
 
 | File                                                 | Responsibility                                                                                                                  |
@@ -199,6 +207,7 @@ The `/responses` endpoint similarly:
 | `src/lib/env.ts`                                     | Pluggable environment variable access (`initEnv`/`getEnv`)                                                                      |
 | `src/lib/sse.ts`                                     | SSE stream parsing async generator (`parseSSEStream`)                                                                           |
 | `src/lib/translate/chat-to-messages.ts`              | OpenAI Chat Completions → Anthropic Messages translation, with injectable remote image loading callback for tests               |
+| `src/lib/translate/chat-to-responses.ts`             | Direct OpenAI Chat Completions ↔ Responses bidirectional translation (request, non-streaming response, streaming)               |
 | `src/lib/translate/openai.ts`                        | Anthropic ↔ OpenAI non-streaming translation                                                                                    |
 | `src/lib/translate/openai-stream.ts`                 | OpenAI SSE → Anthropic SSE streaming translation                                                                                |
 | `src/lib/translate/responses.ts`                     | Anthropic ↔ Responses bidirectional translation                                                                                 |
@@ -370,7 +379,8 @@ This is used by Codex CLI. Key spec points:
 
 - **Spec**: https://platform.openai.com/docs/api-reference/chat
 
-Passthrough endpoint — no translation. Key differences from Responses API:
+Three-path endpoint — translates or passes through based on model capabilities.
+When passing through directly, key differences from Responses API:
 
 - **Streaming**: Bare `data:` lines (no `event:` field), terminated with
   `data: [DONE]`
