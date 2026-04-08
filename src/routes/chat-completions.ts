@@ -3,6 +3,10 @@
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { copilotFetch } from "../lib/copilot.ts";
+import {
+  probeChatCompletionsThinkingBudget,
+  selectResponsesReasoningEffortForChat,
+} from "../lib/copilot-probes.ts";
 import { getGithubCredentials } from "../lib/github.ts";
 import { findModel } from "../lib/models-cache.ts";
 import { parseSSEStream } from "../lib/sse.ts";
@@ -140,10 +144,10 @@ function fixStream(
 
 export const chatCompletions = async (c: Context) => {
   try {
-    const body = await c.req.json();
+    const body = await c.req.json<ChatCompletionsPayload>();
     const { token: githubToken, accountType } = await getGithubCredentials();
 
-    const route = await decideRoute(body.model ?? "", githubToken, accountType);
+    const route = await decideRoute(body, githubToken, accountType);
 
     if (route === "messages") {
       return await handleViaMessagesApi(
@@ -170,14 +174,19 @@ export const chatCompletions = async (c: Context) => {
 };
 
 async function decideRoute(
-  modelId: string,
+  payload: ChatCompletionsPayload,
   githubToken: string,
   accountType: string,
 ): Promise<"messages" | "responses" | "completions"> {
+  const modelId = payload.model ?? "";
+  const wantsBudgetThinking = typeof payload.thinking_budget === "number";
   const model = await findModel(modelId, githubToken, accountType);
   if (model) {
     const endpoints = model.supported_endpoints ?? [];
     if (endpoints.includes("/v1/messages")) return "messages";
+    if (wantsBudgetThinking && endpoints.includes("/responses")) {
+      return "responses";
+    }
     if (endpoints.includes("/chat/completions")) return "completions";
     if (endpoints.includes("/responses")) return "responses";
     return "completions";
@@ -269,7 +278,14 @@ async function handleViaResponsesApi(
   githubToken: string,
   accountType: string,
 ): Promise<Response> {
-  const responsesPayload = translateChatToResponses(payload);
+  const reasoningEffort = await selectResponsesReasoningEffortForChat(
+    payload,
+    githubToken,
+    accountType,
+  );
+  const responsesPayload = translateChatToResponses(payload, {
+    reasoningEffort,
+  });
   const vision = hasVision(payload as unknown as Record<string, unknown>);
   const wantsStream = !!payload.stream;
 
@@ -342,11 +358,25 @@ async function handleViaResponsesApi(
 
 async function handleViaCompletionsApi(
   c: Context,
-  body: Record<string, unknown>,
+  body: ChatCompletionsPayload,
   githubToken: string,
   accountType: string,
 ): Promise<Response> {
-  const vision = hasVision(body);
+  if (typeof body.thinking_budget === "number") {
+    try {
+      const supported = await probeChatCompletionsThinkingBudget(
+        body.model,
+        githubToken,
+        accountType,
+      );
+      if (!supported) delete body.thinking_budget;
+    } catch (error) {
+      console.warn("Failed to probe Chat Completions thinking_budget:", error);
+      delete body.thinking_budget;
+    }
+  }
+
+  const vision = hasVision(body as unknown as Record<string, unknown>);
   const needsFix = (typeof body.model === "string") &&
     body.model.startsWith("claude");
   const wantsStream = !!body.stream;

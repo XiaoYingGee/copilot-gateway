@@ -1,7 +1,12 @@
 import type { Context } from "hono";
 import { copilotFetch, type CopilotFetchOptions } from "../lib/copilot.ts";
+import {
+  probeChatCompletionsThinkingBudget,
+  selectResponsesReasoningEffortForAnthropic,
+} from "../lib/copilot-probes.ts";
 import { getGithubCredentials } from "../lib/github.ts";
 import { modelSupportsEndpoint } from "../lib/models-cache.ts";
+import { getAnthropicRequestedReasoningEffort } from "../lib/reasoning.ts";
 import type {
   AnthropicMessagesPayload,
   AnthropicStreamState,
@@ -183,6 +188,17 @@ export const messages = async (c: Context) => {
       githubToken,
       accountType,
     );
+    const requestedReasoningEffort = getAnthropicRequestedReasoningEffort(
+      payload,
+    );
+    const responsesReasoningEffort =
+      supportsResponses && requestedReasoningEffort
+        ? await selectResponsesReasoningEffortForAnthropic(
+          payload,
+          githubToken,
+          accountType,
+        )
+        : null;
 
     if (supportsMessages) {
       return await handleNativeMessages(c, payload, githubToken, accountType, {
@@ -192,16 +208,43 @@ export const messages = async (c: Context) => {
       });
     }
 
+    if (supportsResponses && requestedReasoningEffort) {
+      return await handleWithResponses(c, payload, githubToken, accountType, {
+        vision,
+        initiator,
+        reasoningEffort: responsesReasoningEffort,
+      });
+    }
+
     if (supportsResponses && !supportsChatCompletions) {
       return await handleWithResponses(c, payload, githubToken, accountType, {
         vision,
         initiator,
+        reasoningEffort: responsesReasoningEffort,
       });
+    }
+
+    let allowThinkingBudget = true;
+    if (payload.thinking?.budget_tokens && supportsChatCompletions) {
+      try {
+        allowThinkingBudget = await probeChatCompletionsThinkingBudget(
+          payload.model,
+          githubToken,
+          accountType,
+        );
+      } catch (error) {
+        console.warn(
+          "Failed to probe Chat Completions thinking_budget:",
+          error,
+        );
+        allowThinkingBudget = false;
+      }
     }
 
     return await handleTranslated(c, payload, githubToken, accountType, {
       vision,
       initiator,
+      allowThinkingBudget,
     });
   } catch (e: unknown) {
     return anthropicApiErrorResponse(c, getErrorMessage(e), 502);
@@ -293,14 +336,20 @@ async function handleTranslated(
   payload: AnthropicMessagesPayload,
   githubToken: string,
   accountType: string,
-  opts: { vision: boolean; initiator: "user" | "agent" },
+  opts: {
+    vision: boolean;
+    initiator: "user" | "agent";
+    allowThinkingBudget?: boolean;
+  },
 ): Promise<Response> {
   const fetchOptions: CopilotFetchOptions = {
     vision: opts.vision,
     initiator: opts.initiator,
   };
 
-  const openAIPayload = translateToOpenAI(payload);
+  const openAIPayload = translateToOpenAI(payload, {
+    allowThinkingBudget: opts.allowThinkingBudget,
+  });
   const wantsStream = !!payload.stream;
 
   // Always stream upstream to avoid blocking on large responses
@@ -365,9 +414,17 @@ async function handleWithResponses(
   payload: AnthropicMessagesPayload,
   githubToken: string,
   accountType: string,
-  opts: { vision: boolean; initiator: "user" | "agent" },
+  opts: {
+    vision: boolean;
+    initiator: "user" | "agent";
+    reasoningEffort?:
+      | import("../lib/reasoning.ts").ResponsesReasoningEffort
+      | null;
+  },
 ): Promise<Response> {
-  const responsesPayload = translateAnthropicToResponses(payload);
+  const responsesPayload = translateAnthropicToResponses(payload, {
+    reasoningEffort: opts.reasoningEffort,
+  });
   const wantsStream = !!payload.stream;
 
   // Always stream upstream to avoid blocking on large responses

@@ -44,6 +44,10 @@ DenoKvRepo (src/repo/deno.ts)  |  D1Repo (src/repo/d1.ts)
 - `src/lib/models-cache.ts` — Models cache: L1 in-process 120s + L2 repo-backed
   KV/D1, keyed by `accountType + githubToken` hash, in-process cache cleared on
   GitHub account add/remove/switch
+- `src/lib/probe.ts` + `src/lib/copilot-probes.ts` — Generic capability probe
+  cache (L1 in-process + L2 repo-backed KV/D1) for request-shape features not
+  exposed by `GET /models`, such as `/responses` `reasoning.effort` support and
+  `/chat/completions` `thinking_budget` acceptance
 
 **App core:**
 
@@ -168,14 +172,19 @@ workaround logic applies only to the data plane.
 
 The `/v1/messages` endpoint automatically selects a translation path based on
 which API the model supports (queried from `GET /models` →
-`supported_endpoints`; no model names are hardcoded):
+`supported_endpoints`; no model names are hardcoded). When endpoint metadata is
+insufficient, cached capability probes are used to decide whether to keep,
+downgrade, or drop request fields such as reasoning controls:
 
 1. **Native Messages** — model supports `/v1/messages` natively → forward
    directly
-2. **Chat Completions translation** — model only supports `/chat/completions` →
-   bidirectional OpenAI↔Anthropic translation
-3. **Responses translation** — model supports `/responses` but not `/chat/completions` → bidirectional
+2. **Responses translation** — model supports `/responses` and either does not
+   support `/chat/completions` or the request asks for reasoning/thinking that
+   is better represented through `/responses` → bidirectional
    Responses↔Anthropic translation
+3. **Chat Completions translation** — otherwise use bidirectional
+   OpenAI↔Anthropic translation, probing `thinking_budget` support before
+   forwarding that field
 
 Anthropic tool `strict` is forwarded as-is on native `/v1/messages`. The gateway
 does not silently drop `strict` and does not reroute strict Messages requests to
@@ -191,9 +200,11 @@ The `/chat/completions` endpoint similarly:
 
 1. **Messages translation** — model supports `/v1/messages` → translate
    Chat↔Anthropic (reuses the Messages translation layer)
-2. **Direct passthrough** — model supports `/chat/completions` natively
-3. **Responses translation** — model only supports `/responses` → direct
-   Chat↔Responses translation (no Anthropic intermediate)
+2. **Responses translation** — if `/responses` is available and the request
+   carries `thinking_budget`, prefer direct Chat↔Responses translation so the
+   budget can be converted into probed `reasoning.effort`
+3. **Direct passthrough** — otherwise use `/chat/completions` natively, probing
+   whether `thinking_budget` should be forwarded or dropped
 
 ### Core Libraries
 
@@ -204,6 +215,8 @@ The `/chat/completions` endpoint similarly:
 | `src/lib/api-keys.ts`                                | API key generation, listing, deletion, rotation, renaming                                                                       |
 | `src/lib/usage-tracker.ts`                           | Token usage recording and querying                                                                                              |
 | `src/lib/models-cache.ts`                            | Model list caching and capability queries (L1 in-process 120s + L2 repo-backed 600s, keyed by account type + GitHub token hash) |
+| `src/lib/probe.ts`                                   | Generic cached capability probe framework with in-process + repo-backed cache                                                   |
+| `src/lib/copilot-probes.ts`                          | Copilot-specific probes for `/responses` reasoning.effort support and `/chat/completions` thinking_budget support               |
 | `src/lib/env.ts`                                     | Pluggable environment variable access (`initEnv`/`getEnv`)                                                                      |
 | `src/lib/sse.ts`                                     | SSE stream parsing async generator (`parseSSEStream`)                                                                           |
 | `src/lib/translate/chat-to-messages.ts`              | OpenAI Chat Completions → Anthropic Messages translation, with injectable remote image loading callback for tests               |
@@ -323,11 +336,11 @@ This is the primary client-facing API (Claude Code uses it). Key spec points:
 
 **Translation considerations (Responses → Messages):**
 
-| Concern                   | Handling                                                                                                                                                                                                                                                                                                                                                                                           |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| System/developer messages | Responses input items with `role: "system"/"developer"` are collected and concatenated into Anthropic top-level `system` field (Anthropic doesn't support system messages in `messages[]`)                                                                                                                                                                                                         |
+| Concern                   | Handling                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| System/developer messages | Responses input items with `role: "system"/"developer"` are collected and concatenated into Anthropic top-level `system` field (Anthropic doesn't support system messages in `messages[]`)                                                                                                                                                                                                                                    |
 | Reasoning blocks          | Responses `reasoning` items map `encrypted_content` directly to Anthropic `signature` (they are the same underlying opaque token). The `reasoning.id` is not preserved — a synthetic id is generated each time (may affect prompt cache). See `TRANSLATION.md` for details. Ref: [caozhiyuan/copilot-api#63](https://github.com/caozhiyuan/copilot-api/issues/63), [#73](https://github.com/caozhiyuan/copilot-api/issues/73) |
-| Thinking placeholder      | Empty thinking blocks use `"Thinking..."` placeholder to preserve structure (some clients filter blocks with empty thinking text). Ref: [caozhiyuan/copilot-api `THINKING_TEXT`](https://github.com/caozhiyuan/copilot-api/blob/all/src/routes/messages/stream-translation.ts)                                                                                                                     |
+| Thinking placeholder      | Empty thinking blocks use `"Thinking..."` placeholder to preserve structure (some clients filter blocks with empty thinking text). Ref: [caozhiyuan/copilot-api `THINKING_TEXT`](https://github.com/caozhiyuan/copilot-api/blob/all/src/routes/messages/stream-translation.ts)                                                                                                                                                |
 
 ### OpenAI Responses API
 
@@ -358,12 +371,12 @@ This is used by Codex CLI. Key spec points:
 
 **Translation considerations (Messages → Responses):**
 
-| Concern           | Handling                                                                                                                |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Effort mapping    | Anthropic `output_config.effort` maps directly; `thinking.budget_tokens` mapped as: ≤2048→low, ≤8192→medium, >8192→high |
-| Temperature       | Hardcoded to `1` (reasoning models require it)                                                                          |
-| Max output tokens | Floor of 12,800 tokens (`Math.max(payload.max_tokens, 12800)`)                                                          |
-| Reasoning config  | `summary: "detailed"`, `include: ["reasoning.encrypted_content"]` for signature round-tripping                          |
+| Concern           | Handling                                                                                                                                                                                                                                                                 |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Effort mapping    | Anthropic `output_config.effort` maps directly; `thinking.budget_tokens` mapped as: ≤2048→low, ≤8192→medium, >8192→high                                                                                                                                                  |
+| Temperature       | Hardcoded to `1` (reasoning models require it)                                                                                                                                                                                                                           |
+| Max output tokens | Floor of 12,800 tokens (`Math.max(payload.max_tokens, 12800)`)                                                                                                                                                                                                           |
+| Reasoning config  | Only sent when reasoning was requested. Requested effort is probed per model; unsupported values are downgraded to the nearest supported effort or dropped. When reasoning is sent, also request `include: ["reasoning.encrypted_content"]` for signature round-tripping |
 
 **Translation considerations (Anthropic stream → Responses stream):**
 
@@ -451,10 +464,11 @@ excluded for adaptive thinking.
 
 Claude Code (v2.1.24+) adds a `scope` field to `cache_control` objects as part
 of the `prompt-caching-scope-2026-01-05` beta. Copilot API doesn't support this
-field and rejects with `cache_control.ephemeral.scope: Extra inputs are not
-permitted`. We strip only the `scope` field from `cache_control` on system
-blocks and message content blocks, preserving `{ type: "ephemeral" }` so
-caching still works.
+field and rejects with
+`cache_control.ephemeral.scope: Extra inputs are not
+permitted`. We strip only
+the `scope` field from `cache_control` on system blocks and message content
+blocks, preserving `{ type: "ephemeral" }` so caching still works.
 
 ### 7. `service_tier` removal
 
@@ -468,8 +482,8 @@ Copilot does not support it.
 **File**: `src/routes/messages.ts`
 
 Some Copilot native `/v1/messages` streams include an OpenAI-style trailing
-`data: [DONE]` sentinel. Anthropic-compatible clients do not expect this, so
-the proxy strips it and leaves the rest of the Anthropic SSE stream unchanged.
+`data: [DONE]` sentinel. Anthropic-compatible clients do not expect this, so the
+proxy strips it and leaves the rest of the Anthropic SSE stream unchanged.
 
 ### 9. Infinite whitespace in function call arguments
 

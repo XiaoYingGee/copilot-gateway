@@ -56,16 +56,31 @@ Deno.test("/v1/messages uses native endpoint and applies native request workarou
         },
         {
           event: "content_block_start",
-          data: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+          data: {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "text", text: "" },
+          },
         },
         {
           event: "content_block_delta",
-          data: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } },
+          data: {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "text_delta", text: "ok" },
+          },
         },
-        { event: "content_block_stop", data: { type: "content_block_stop", index: 0 } },
+        {
+          event: "content_block_stop",
+          data: { type: "content_block_stop", index: 0 },
+        },
         {
           event: "message_delta",
-          data: { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 4 } },
+          data: {
+            type: "message_delta",
+            delta: { stop_reason: "end_turn", stop_sequence: null },
+            usage: { output_tokens: 4 },
+          },
         },
         { event: "message_stop", data: { type: "message_stop" } },
       ]);
@@ -202,16 +217,31 @@ Deno.test("/v1/messages keeps caller thinking and tool_choice unchanged on nativ
         },
         {
           event: "content_block_start",
-          data: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+          data: {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "text", text: "" },
+          },
         },
         {
           event: "content_block_delta",
-          data: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } },
+          data: {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "text_delta", text: "ok" },
+          },
         },
-        { event: "content_block_stop", data: { type: "content_block_stop", index: 0 } },
+        {
+          event: "content_block_stop",
+          data: { type: "content_block_stop", index: 0 },
+        },
         {
           event: "message_delta",
-          data: { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 4 } },
+          data: {
+            type: "message_delta",
+            delta: { stop_reason: "end_turn", stop_sequence: null },
+            usage: { output_tokens: 4 },
+          },
         },
         { event: "message_stop", data: { type: "message_stop" } },
       ]);
@@ -373,16 +403,31 @@ Deno.test("/v1/messages forwards Anthropic tool strict field on native messages"
         },
         {
           event: "content_block_start",
-          data: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+          data: {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "text", text: "" },
+          },
         },
         {
           event: "content_block_delta",
-          data: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } },
+          data: {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "text_delta", text: "ok" },
+          },
         },
-        { event: "content_block_stop", data: { type: "content_block_stop", index: 0 } },
+        {
+          event: "content_block_stop",
+          data: { type: "content_block_stop", index: 0 },
+        },
         {
           event: "message_delta",
-          data: { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 4 } },
+          data: {
+            type: "message_delta",
+            delta: { stop_reason: "end_turn", stop_sequence: null },
+            usage: { output_tokens: 4 },
+          },
         },
         { event: "message_stop", data: { type: "message_stop" } },
       ]);
@@ -467,16 +512,31 @@ Deno.test("/v1/messages keeps strict Anthropic tools on native messages when bot
         },
         {
           event: "content_block_start",
-          data: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+          data: {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "text", text: "" },
+          },
         },
         {
           event: "content_block_delta",
-          data: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } },
+          data: {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "text_delta", text: "ok" },
+          },
         },
-        { event: "content_block_stop", data: { type: "content_block_stop", index: 0 } },
+        {
+          event: "content_block_stop",
+          data: { type: "content_block_stop", index: 0 },
+        },
         {
           event: "message_delta",
-          data: { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 4 } },
+          data: {
+            type: "message_delta",
+            delta: { stop_reason: "end_turn", stop_sequence: null },
+            usage: { output_tokens: 4 },
+          },
         },
         { event: "message_stop", data: { type: "message_stop" } },
       ]);
@@ -733,16 +793,202 @@ Deno.test("/v1/messages falls back to responses and preserves reasoning round-tr
   assertEquals(upstreamBody!.instructions, "system instructions");
   assertEquals(upstreamBody!.temperature, 1);
   assertEquals(upstreamBody!.max_output_tokens, 12800);
-  assertEquals(
-    (upstreamBody!.reasoning as Record<string, unknown>).summary,
-    "detailed",
-  );
-  assertEquals(
-    (upstreamBody!.include as string[])[0],
-    "reasoning.encrypted_content",
-  );
+  assertFalse("reasoning" in upstreamBody!);
+  assertFalse("include" in upstreamBody!);
   assertEquals(
     (upstreamBody!.tools as Array<Record<string, unknown>>)[0].strict,
     true,
   );
+});
+
+Deno.test("/v1/messages with budgeted thinking prefers responses on dual-endpoint models and picks the nearest supported effort", async () => {
+  const { apiKey } = await setupAppTest();
+
+  let upstreamBody: Record<string, unknown> | undefined;
+
+  await withMockedFetch(async (request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        {
+          id: "gpt-dual-endpoint",
+          supported_endpoints: ["/responses", "/chat/completions"],
+        },
+      ]));
+    }
+    if (url.pathname === "/chat/completions") {
+      throw new Error(
+        "chat/completions should not be used for budgeted thinking",
+      );
+    }
+    if (url.pathname === "/responses") {
+      const body = JSON.parse(await request.text()) as Record<string, unknown>;
+      if ((body.max_output_tokens as number | undefined) === 1) {
+        const reasoning = body.reasoning as Record<string, unknown> | undefined;
+        if (!reasoning) return jsonResponse({ ok: true });
+        const effort = reasoning.effort;
+        return effort === "low" || effort === "medium"
+          ? jsonResponse({ ok: true })
+          : jsonResponse({ error: { message: "unsupported effort" } }, 400);
+      }
+
+      upstreamBody = body;
+      return sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            type: "response.completed",
+            response: {
+              id: "resp_dual",
+              object: "response",
+              model: "gpt-dual-endpoint",
+              status: "completed",
+              output_text: "ok",
+              output: [
+                {
+                  type: "message",
+                  role: "assistant",
+                  content: [{ type: "output_text", text: "ok" }],
+                },
+              ],
+              usage: { input_tokens: 10, output_tokens: 2, total_tokens: 12 },
+            },
+          },
+        },
+      ]);
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp("/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+      },
+      body: JSON.stringify({
+        model: "gpt-dual-endpoint",
+        max_tokens: 256,
+        stream: false,
+        thinking: { type: "enabled", budget_tokens: 21332 },
+        messages: [{ role: "user", content: "Hi" }],
+      }),
+    });
+
+    assertEquals(response.status, 200);
+    const body = await response.json();
+    assertEquals(body.content[0].text, "ok");
+  });
+
+  assertExists(upstreamBody);
+  assertEquals(upstreamBody!.stream, true);
+  assertEquals(
+    (upstreamBody!.reasoning as Record<string, unknown>).effort,
+    "medium",
+  );
+  const input = upstreamBody!.input as Array<Record<string, unknown>>;
+  assertEquals((input[0] as Record<string, unknown>).type, "message");
+});
+
+Deno.test("/v1/messages drops reasoning config when the responses endpoint supports no reasoning efforts", async () => {
+  const { apiKey } = await setupAppTest();
+
+  let upstreamBody: Record<string, unknown> | undefined;
+
+  await withMockedFetch(async (request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        {
+          id: "gpt-no-reasoning",
+          supported_endpoints: ["/responses", "/chat/completions"],
+        },
+      ]));
+    }
+    if (url.pathname === "/chat/completions") {
+      throw new Error(
+        "chat/completions should not be used for budgeted thinking",
+      );
+    }
+    if (url.pathname === "/responses") {
+      const body = JSON.parse(await request.text()) as Record<string, unknown>;
+      if ((body.max_output_tokens as number | undefined) === 1) {
+        return body.reasoning
+          ? jsonResponse({ error: { message: "unsupported effort" } }, 400)
+          : jsonResponse({ ok: true });
+      }
+
+      upstreamBody = body;
+      return sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            type: "response.completed",
+            response: {
+              id: "resp_plain",
+              object: "response",
+              model: "gpt-no-reasoning",
+              status: "completed",
+              output_text: "plain",
+              output: [
+                {
+                  type: "message",
+                  role: "assistant",
+                  content: [{ type: "output_text", text: "plain" }],
+                },
+              ],
+              usage: { input_tokens: 10, output_tokens: 2, total_tokens: 12 },
+            },
+          },
+        },
+      ]);
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp("/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+      },
+      body: JSON.stringify({
+        model: "gpt-no-reasoning",
+        max_tokens: 256,
+        stream: false,
+        thinking: { type: "enabled", budget_tokens: 4096 },
+        messages: [{ role: "user", content: "Hi" }],
+      }),
+    });
+
+    assertEquals(response.status, 200);
+    const body = await response.json();
+    assertEquals(body.content[0].text, "plain");
+  });
+
+  assertExists(upstreamBody);
+  assertFalse("reasoning" in upstreamBody!);
+  assertFalse("include" in upstreamBody!);
 });

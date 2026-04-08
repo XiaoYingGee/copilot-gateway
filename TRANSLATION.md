@@ -10,7 +10,9 @@
 
 Route selection is driven by `GET /models` capability data, specifically each
 model's `supported_endpoints`. The implementation does not hardcode model
-families.
+families. When endpoint metadata is insufficient, the gateway uses cached
+runtime probes to discover request-shape capabilities such as supported
+`reasoning.effort` values and `thinking_budget` acceptance.
 
 ## `/v1/messages` Routing
 
@@ -18,30 +20,29 @@ File: `src/routes/messages.ts`
 
 The Messages route selects one of three paths:
 
-1. Native Messages
-   If the model supports `/v1/messages`, forward the Anthropic payload
-   directly.
-2. Responses translation
-   If the model does not support `/v1/messages`, but supports `/responses` and
-   does not support `/chat/completions`, translate Anthropic Messages ↔ OpenAI
+1. Native Messages If the model supports `/v1/messages`, forward the Anthropic
+   payload directly.
+2. Responses translation If the model does not support `/v1/messages`, but
+   supports `/responses` and either does not support `/chat/completions` or the
+   request asks for reasoning/thinking, translate Anthropic Messages ↔ OpenAI
    Responses.
-3. Chat Completions translation
-   Otherwise, translate Anthropic Messages ↔ OpenAI Chat Completions.
+3. Chat Completions translation Otherwise, translate Anthropic Messages ↔ OpenAI
+   Chat Completions.
 
 Current behavior:
 
 - Anthropic tool `strict` is forwarded as-is on native `/v1/messages`.
 - The gateway does not silently drop `strict` and does not reroute strict
   Messages requests to `/chat/completions`.
-- If the upstream native Messages endpoint rejects `strict`, that `400` error
-  is returned to the client.
+- If the upstream native Messages endpoint rejects `strict`, that `400` error is
+  returned to the client.
 
 ## Native Messages Path
 
 File: `src/routes/messages.ts`
 
-When forwarding to native `/v1/messages`, the gateway applies only
-compatibility workarounds that preserve Anthropic semantics:
+When forwarding to native `/v1/messages`, the gateway applies only compatibility
+workarounds that preserve Anthropic semantics:
 
 - strip unsupported `web_search` tools
 - strip reserved keyword `x-anthropic-billing-header` from text blocks
@@ -111,7 +112,10 @@ Files:
 - `src/lib/translate/responses-stream.ts`
 - `src/lib/translate/anthropic-to-responses-stream.ts`
 
-This path is used when a model supports `/responses` but not `/v1/messages`.
+This path is used when a model supports `/responses` but not `/v1/messages`. It
+is also preferred over `/chat/completions` for non-native Anthropic requests
+that ask for reasoning/thinking, because Responses can represent that capability
+more directly.
 
 Main mappings:
 
@@ -119,6 +123,9 @@ Main mappings:
 - Anthropic tool definitions become Responses function tools
 - Anthropic reasoning/thinking content is preserved using Responses reasoning
   items and encrypted content round-tripping
+- requested reasoning effort is probed per model; unsupported values are dropped
+  or downgraded to the nearest supported effort instead of being hardcoded by
+  model name
 - Anthropic SSE is translated into named Responses SSE events with
   `sequence_number` and stable output item IDs
 
@@ -138,14 +145,13 @@ File: `src/routes/chat-completions.ts`
 
 The Chat Completions route selects one of three paths:
 
-1. Messages translation
-   If the model supports `/v1/messages`, translate Chat Completions ↔ Anthropic
-   Messages (reuses the Messages translation layer).
-2. Direct passthrough
-   If the model supports `/chat/completions`, forward the request directly.
-3. Responses translation
-   If the model only supports `/responses`, translate Chat Completions ↔
-   Responses directly (no Anthropic intermediate).
+1. Messages translation If the model supports `/v1/messages`, translate Chat
+   Completions ↔ Anthropic Messages (reuses the Messages translation layer).
+2. Direct passthrough If the model supports `/chat/completions`, forward the
+   request directly.
+3. Responses translation If the model only supports `/responses`, or if a
+   `thinking_budget` request can be represented more safely via `/responses`,
+   translate Chat Completions ↔ Responses directly (no Anthropic intermediate).
 
 ## Chat Completions ↔ Responses Translation
 
@@ -164,7 +170,9 @@ format.
 - `reasoning_text`/`reasoning_opaque` → `reasoning` input items
 - tool messages → `function_call_output` input items
 - tools → Responses `function` tools
-- `thinking_budget` → discretized `reasoning.effort`
+- `thinking_budget` → discretized `reasoning.effort`, then clamped to the
+  nearest probed supported effort for that model (or dropped if none are
+  supported)
 
 ### Responses → Chat Completions (response)
 
@@ -190,8 +198,8 @@ Responses SSE events are translated directly to Chat Completions chunks:
 - Native Anthropic-compatible streams must not expose `[DONE]`.
 - `strict` support on Copilot upstream Claude models is inconsistent; the
   gateway intentionally does not mask this with implicit fallback.
-- `count_tokens` uses tokenizer implementations when available and falls back
-  to estimation on tokenizer load or runtime failure.
+- `count_tokens` uses tokenizer implementations when available and falls back to
+  estimation on tokenizer load or runtime failure.
 
 ## Translation-Induced Limitations
 
@@ -202,57 +210,67 @@ known and accepted trade-offs.
 
 **Request parameters lost or approximated (Messages → Responses):**
 
-| Parameter        | Behavior                                                      |
-| ---------------- | ------------------------------------------------------------- |
-| `temperature`    | Hardcoded to `1` (reasoning models require it)                |
-| `budget_tokens`  | Discretized to `low`/`medium`/`high` effort; precision lost   |
-| `effort: "max"`  | Degraded to `"high"` (Responses API has no `"max"`)           |
-| `stop_sequences` | Dropped — no Responses API counterpart                        |
-| `top_k`          | Dropped — no Responses API counterpart                        |
-| `service_tier`   | Dropped — no Responses API counterpart                        |
-| `max_tokens`     | Floored to 12,800 (`Math.max`); original value lost if lower  |
+| Parameter        | Behavior                                                                                     |
+| ---------------- | -------------------------------------------------------------------------------------------- |
+| `temperature`    | Hardcoded to `1` (reasoning models require it)                                               |
+| `budget_tokens`  | Discretized to `low`/`medium`/`high` effort, then clamped or dropped based on probed support |
+| `effort: "max"`  | Degraded to `"high"` (Responses API has no `"max"`)                                          |
+| `stop_sequences` | Dropped — no Responses API counterpart                                                       |
+| `top_k`          | Dropped — no Responses API counterpart                                                       |
+| `service_tier`   | Dropped — no Responses API counterpart                                                       |
+| `max_tokens`     | Floored to 12,800 (`Math.max`); original value lost if lower                                 |
+
+**Capability probing:**
+
+- Probe results are cached in-process and in the repo-backed cache.
+- Responses reasoning support is discovered by sending minimal `/responses`
+  requests for each candidate `reasoning.effort` value.
+- Chat Completions `thinking_budget` support is discovered by sending a minimal
+  `/chat/completions` request with and without `thinking_budget`.
+- A failed probe does not hardcode any model family; the request falls back to
+  omitting the unsupported field for safety.
 
 **Reasoning round-trip:**
 
 - `reasoning.id` is **not preserved** across translations. Anthropic thinking
-  blocks have no `id` field, and the API rejects extra fields on thinking
-  blocks (`Extra inputs are not permitted`). A synthetic id is generated each
-  time. This may cause Responses API prompt cache misses when the upstream
-  compares reasoning ids for cache key matching.
-  Ref: upstream [caozhiyuan/copilot-api](https://github.com/caozhiyuan/copilot-api)
-  uses `encrypted_content@id` encoding in `signature` to work around this, but
-  that corrupts the signature for native Anthropic API
+  blocks have no `id` field, and the API rejects extra fields on thinking blocks
+  (`Extra inputs are not permitted`). A synthetic id is generated each time.
+  This may cause Responses API prompt cache misses when the upstream compares
+  reasoning ids for cache key matching. Ref: upstream
+  [caozhiyuan/copilot-api](https://github.com/caozhiyuan/copilot-api) uses
+  `encrypted_content@id` encoding in `signature` to work around this, but that
+  corrupts the signature for native Anthropic API
   ([#63](https://github.com/caozhiyuan/copilot-api/issues/63),
   [#73](https://github.com/caozhiyuan/copilot-api/issues/73)).
-- `encrypted_content` is mapped directly to/from `signature`. These are the
-  same underlying opaque token from the model backend.
+- `encrypted_content` is mapped directly to/from `signature`. These are the same
+  underlying opaque token from the model backend.
 
 ### Messages ↔ Chat Completions
 
 **Request parameters lost or approximated (Messages → Chat Completions):**
 
-| Parameter        | Behavior                                                   |
-| ---------------- | ---------------------------------------------------------- |
-| `stop_sequences` | Mapped to `stop` — semantics preserved                     |
-| `top_k`          | Dropped — no Chat Completions counterpart                  |
-| `service_tier`   | Dropped — no Chat Completions counterpart                  |
+| Parameter        | Behavior                                  |
+| ---------------- | ----------------------------------------- |
+| `stop_sequences` | Mapped to `stop` — semantics preserved    |
+| `top_k`          | Dropped — no Chat Completions counterpart |
+| `service_tier`   | Dropped — no Chat Completions counterpart |
 
 **Content structure:**
 
 - Multiple thinking blocks in assistant messages are merged into a single
   `reasoning_text` + `reasoning_opaque`. Only the first signature is kept;
   subsequent ones are lost.
-- Image blocks in assistant messages are silently dropped (Chat Completions
-  does not support assistant-side images).
-- Adjacent `tool_result` + `text` blocks are merged into a single
-  `tool_result` to reduce Copilot premium request credit consumption.
+- Image blocks in assistant messages are silently dropped (Chat Completions does
+  not support assistant-side images).
+- Adjacent `tool_result` + `text` blocks are merged into a single `tool_result`
+  to reduce Copilot premium request credit consumption.
 
 **Response translation (Chat Completions → Messages):**
 
-- Multiple choices are merged into one Anthropic response. Choice separation
-  and index information is lost.
-- `output_tokens_details.reasoning_tokens` is dropped — Anthropic usage has
-  no counterpart for reasoning token breakdown.
+- Multiple choices are merged into one Anthropic response. Choice separation and
+  index information is lost.
+- `output_tokens_details.reasoning_tokens` is dropped — Anthropic usage has no
+  counterpart for reasoning token breakdown.
 
 ### Chat Completions → Messages (reverse, for `/v1/messages` fallback)
 
@@ -268,10 +286,10 @@ known and accepted trade-offs.
 
 **Request parameters lost or approximated (Chat Completions → Responses):**
 
-| Parameter        | Behavior                                                      |
-| ---------------- | ------------------------------------------------------------- |
-| `stop`           | Dropped — no Responses API counterpart                        |
-| `thinking_budget`| Discretized to `low`/`medium`/`high` effort; precision lost   |
+| Parameter         | Behavior                                                    |
+| ----------------- | ----------------------------------------------------------- |
+| `stop`            | Dropped — no Responses API counterpart                      |
+| `thinking_budget` | Discretized to `low`/`medium`/`high` effort; precision lost |
 
 **Reasoning round-trip:**
 

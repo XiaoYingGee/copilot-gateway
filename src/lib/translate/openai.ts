@@ -65,6 +65,7 @@ export const mapOpenAIUsage = (
 
 export function translateToOpenAI(
   payload: AnthropicMessagesPayload,
+  options: { allowThinkingBudget?: boolean } = {},
 ): ChatCompletionsPayload {
   mergeToolResultBlocks(payload);
 
@@ -81,7 +82,9 @@ export function translateToOpenAI(
     tool_choice: translateToolChoice(payload.tool_choice),
   };
 
-  if (payload.thinking?.budget_tokens) {
+  if (
+    options.allowThinkingBudget !== false && payload.thinking?.budget_tokens
+  ) {
     result.thinking_budget = payload.thinking.budget_tokens;
   }
 

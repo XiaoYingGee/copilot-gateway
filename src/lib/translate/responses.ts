@@ -30,33 +30,21 @@ import type {
   ResponseToolChoice,
 } from "../responses-types.ts";
 import {
-  safeJsonParse,
-} from "./utils.ts";
+  makeResponsesReasoningId,
+  type ResponsesReasoningEffort,
+} from "../reasoning.ts";
+import { safeJsonParse } from "./utils.ts";
 
 // ── Request: Anthropic → Responses ──
 
-function mapReasoningEffort(
-  payload: AnthropicMessagesPayload,
-): "low" | "medium" | "high" {
-  if (payload.output_config?.effort) {
-    const effort = payload.output_config.effort;
-    if (effort === "max") return "high";
-    if (effort === "low" || effort === "medium" || effort === "high") {
-      return effort;
-    }
-  }
-  if (payload.thinking?.budget_tokens) {
-    const budget = payload.thinking.budget_tokens;
-    if (budget <= 2048) return "low";
-    if (budget <= 8192) return "medium";
-    return "high";
-  }
-  return "high";
-}
-
 export function translateAnthropicToResponses(
   payload: AnthropicMessagesPayload,
+  options: { reasoningEffort?: ResponsesReasoningEffort | null } = {},
 ): ResponsesPayload {
+  const reasoning = options.reasoningEffort
+    ? { effort: options.reasoningEffort, summary: "detailed" as const }
+    : undefined;
+
   return {
     model: payload.model,
     input:
@@ -73,8 +61,9 @@ export function translateAnthropicToResponses(
     stream: payload.stream ?? null,
     store: false,
     parallel_tool_calls: true,
-    reasoning: { effort: mapReasoningEffort(payload), summary: "detailed" },
-    include: ["reasoning.encrypted_content"],
+    ...(reasoning
+      ? { reasoning, include: ["reasoning.encrypted_content"] }
+      : {}),
   };
 }
 
@@ -148,7 +137,7 @@ function translateAssistantMessage(
         : block.thinking;
       items.push({
         type: "reasoning",
-        id: `reasoning_${items.length}`,
+        id: makeResponsesReasoningId(items.length),
         summary: thinking ? [{ type: "summary_text", text: thinking }] : [],
         encrypted_content: block.signature ?? "",
       });
@@ -557,7 +546,7 @@ export function translateAnthropicToResponsesResult(
           : block.thinking;
         output.push({
           type: "reasoning",
-          id: `reasoning_${output.length}`,
+          id: makeResponsesReasoningId(output.length),
           summary: summaryText
             ? [{ type: "summary_text", text: summaryText }]
             : [],

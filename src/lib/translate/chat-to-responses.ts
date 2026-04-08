@@ -6,14 +6,12 @@ import type {
   ChatCompletionsPayload,
   ContentPart,
   Delta,
-  Message,
   Tool,
   ToolCall,
 } from "../openai-types.ts";
 import type {
   ResponseInputContent,
   ResponseInputItem,
-  ResponseOutputFunctionCall,
   ResponseOutputReasoning,
   ResponsesPayload,
   ResponsesResult,
@@ -21,11 +19,17 @@ import type {
   ResponseTool,
   ResponseToolChoice,
 } from "../responses-types.ts";
+import {
+  makeResponsesReasoningId,
+  mapThinkingBudgetToReasoningEffort,
+  type ResponsesReasoningEffort,
+} from "../reasoning.ts";
 
 // ── Request: Chat Completions → Responses ──
 
 export function translateChatToResponses(
   payload: ChatCompletionsPayload,
+  options: { reasoningEffort?: ResponsesReasoningEffort | null } = {},
 ): ResponsesPayload {
   const instructions: string[] = [];
   const input: ResponseInputItem[] = [];
@@ -51,7 +55,7 @@ export function translateChatToResponses(
       if (msg.reasoning_opaque) {
         input.push({
           type: "reasoning",
-          id: `reasoning_${input.length}`,
+          id: makeResponsesReasoningId(input.length),
           summary: msg.reasoning_text
             ? [{ type: "summary_text", text: msg.reasoning_text }]
             : [],
@@ -116,12 +120,10 @@ export function translateChatToResponses(
     parallel_tool_calls: true,
   };
 
-  if (payload.thinking_budget) {
-    const effort = payload.thinking_budget <= 2048
-      ? "low"
-      : payload.thinking_budget <= 8192
-      ? "medium"
-      : "high";
+  const effort = options.reasoningEffort ??
+    mapThinkingBudgetToReasoningEffort(payload.thinking_budget);
+
+  if (effort) {
     result.reasoning = { effort, summary: "detailed" };
     result.include = ["reasoning.encrypted_content"];
   }
@@ -336,8 +338,7 @@ export function translateResponsesEventToChatChunks(
       state.messageId = resp.id;
       state.model = resp.model;
       state.inputTokens = resp.usage?.input_tokens ?? 0;
-      state.cachedTokens =
-        resp.usage?.input_tokens_details?.cached_tokens ?? 0;
+      state.cachedTokens = resp.usage?.input_tokens_details?.cached_tokens ?? 0;
       return [makeChunk(state, { role: "assistant" })];
     }
 

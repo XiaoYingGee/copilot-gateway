@@ -1,8 +1,11 @@
 {
   "private": true,
   "dependencies": {
-    "hono": "^4",
     "@anthropic-ai/tokenizer": "^0.0.4",
-    "gpt-tokenizer": "^3.4.0"
+    "gpt-tokenizer": "^3.4.0",
+    "hono": "^4"
+  },
+  "devDependencies": {
+    "wrangler": "^4.81.0"
   }
 }
