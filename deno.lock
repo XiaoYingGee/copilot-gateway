@@ -57,7 +57,8 @@
       "dependencies": [
         "npm:@anthropic-ai/tokenizer@^0.0.4",
         "npm:gpt-tokenizer@^3.4.0",
-        "npm:hono@4"
+        "npm:hono@4",
+        "npm:wrangler@^4.81.0"
       ]
     }
   }
