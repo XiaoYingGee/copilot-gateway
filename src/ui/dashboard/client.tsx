@@ -651,6 +651,8 @@ export function dashboardAssets() {
             const keyIds = new Set();
             const agg = new Map();
             for (const [key] of bucketMap) agg.set(key, new Map());
+            const aggDetail = new Map();
+            for (const [key] of bucketMap) aggDetail.set(key, new Map());
             for (const r of data) {
               const utc = new Date(r.hour + ':00:00Z');
               const bucket = isDaily ? this.localDateKey(utc) : this.localHourKey(utc);
@@ -658,11 +660,20 @@ export function dashboardAssets() {
               keyIds.add(r.keyId);
               const m = agg.get(bucket);
               m.set(r.keyId, (m.get(r.keyId) || 0) + r.inputTokens + r.outputTokens);
+              const dm = aggDetail.get(bucket);
+              const prev = dm.get(r.keyId) || { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+              prev.input += r.inputTokens;
+              prev.output += r.outputTokens;
+              prev.cacheRead += r.cacheReadTokens || 0;
+              prev.cacheCreation += r.cacheCreationTokens || 0;
+              dm.set(r.keyId, prev);
             }
+            this._aggDetail = aggDetail;
 
             const keyList = [...keyIds].sort((a, b) => (keyNameMap.get(a) || a).localeCompare(keyNameMap.get(b) || b));
             const labels = [...bucketMap.values()];
             const bucketKeys = [...bucketMap.keys()];
+            this._bucketKeys = bucketKeys;
             const datasets = keyList.map((keyId, i) => {
               const c = palette[i % palette.length];
               return {
@@ -736,7 +747,22 @@ export function dashboardAssets() {
                     padding: 12,
                     bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
                     callbacks: {
-                      label: (ctx) => ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString() + ' tokens',
+                      label: (ctx) => {
+                        const bucketKey = this._bucketKeys[ctx.dataIndex];
+                        const keyId = this._keyList[ctx.datasetIndex];
+                        const detail = this._aggDetail.get(bucketKey)?.get(keyId);
+                        if (!detail) return ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString() + ' tokens';
+                        const cacheTotal = detail.cacheRead + detail.cacheCreation;
+                        const hitRate = cacheTotal > 0 ? ((detail.cacheRead / cacheTotal) * 100).toFixed(1) + '%' : '—';
+                        return [
+                          ctx.dataset.label + ':',
+                          '  input:     ' + detail.input.toLocaleString(),
+                          '  output:    ' + detail.output.toLocaleString(),
+                          '  cache rd:  ' + detail.cacheRead.toLocaleString(),
+                          '  cache wr:  ' + detail.cacheCreation.toLocaleString(),
+                          '  hit rate:  ' + hitRate,
+                        ];
+                      },
                     },
                   },
                 },
