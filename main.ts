@@ -5,4 +5,4 @@ import { app } from "./src/app.ts";
 
 initEnv((n) => Deno.env.get(n) ?? "");
 initRepo(new DenoKvRepo(await Deno.openKv()));
-Deno.serve(app.fetch);
+Deno.serve({ port: Number(Deno.env.get("PORT")) || 8000 }, app.fetch);
