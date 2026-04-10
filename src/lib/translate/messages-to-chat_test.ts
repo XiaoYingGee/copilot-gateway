@@ -317,3 +317,22 @@ Deno.test("thinking + text + tool_use all present", () => {
   assertEquals(result.choices[0].message.tool_calls!.length, 1);
   assertEquals(result.choices[0].finish_reason, "tool_calls");
 });
+
+Deno.test("usage with cache_creation_input_tokens included in prompt_tokens", () => {
+  const result = translateMessagesToChatCompletion(mkResponse({
+    usage: { input_tokens: 80, output_tokens: 50, cache_read_input_tokens: 20, cache_creation_input_tokens: 30 },
+  }));
+  assertEquals(result.usage!.prompt_tokens, 130); // 80 + 20 + 30
+  assertEquals(result.usage!.completion_tokens, 50);
+  assertEquals(result.usage!.total_tokens, 180);
+  assertEquals(result.usage!.prompt_tokens_details!.cached_tokens, 20);
+});
+
+Deno.test("usage with cache_creation_input_tokens but no cache_read", () => {
+  const result = translateMessagesToChatCompletion(mkResponse({
+    usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 30 },
+  }));
+  assertEquals(result.usage!.prompt_tokens, 130); // 100 + 0 + 30
+  assertEquals(result.usage!.total_tokens, 180);
+  assertEquals(result.usage!.prompt_tokens_details, undefined);
+});

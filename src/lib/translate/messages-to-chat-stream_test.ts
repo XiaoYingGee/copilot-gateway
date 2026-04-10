@@ -537,3 +537,38 @@ Deno.test("empty text_delta produces chunk with empty content", () => {
   ]);
   assertEquals(d[1].content, "");
 });
+
+// ── cache_creation_input_tokens ──
+
+Deno.test("message_start captures cache_creation_input_tokens", () => {
+  const state = createChatStreamState();
+  translateAnthropicEventToChatChunks({
+    type: "message_start",
+    message: {
+      ...(MSG_START as { type: "message_start"; message: Record<string, unknown> }).message,
+      usage: { input_tokens: 80, output_tokens: 0, cache_read_input_tokens: 20, cache_creation_input_tokens: 30 },
+    },
+  } as AnthropicStreamEventData, state);
+  assertEquals(state.cacheCreationInputTokens, 30);
+});
+
+Deno.test("message_delta usage includes cache_creation_input_tokens in prompt_tokens", () => {
+  const state = createChatStreamState();
+  translateAnthropicEventToChatChunks({
+    type: "message_start",
+    message: {
+      ...(MSG_START as { type: "message_start"; message: Record<string, unknown> }).message,
+      usage: { input_tokens: 80, output_tokens: 0, cache_read_input_tokens: 20, cache_creation_input_tokens: 30 },
+    },
+  } as AnthropicStreamEventData, state);
+
+  const result = translateAnthropicEventToChatChunks({
+    type: "message_delta",
+    delta: { stop_reason: "end_turn" },
+    usage: { output_tokens: 50 },
+  }, state);
+  const chunk = (result as ChatCompletionChunk[])[0];
+  assertEquals(chunk.usage!.prompt_tokens, 130); // 80 + 20 + 30
+  assertEquals(chunk.usage!.completion_tokens, 50);
+  assertEquals(chunk.usage!.total_tokens, 180);
+});
