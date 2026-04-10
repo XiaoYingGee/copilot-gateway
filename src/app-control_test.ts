@@ -65,6 +65,8 @@ Deno.test("/api/token-usage is visible to any authenticated user and includes al
     requests: 2,
     inputTokens: 10,
     outputTokens: 5,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
   });
   await repo.usage.set({
     keyId: "key_other",
@@ -73,6 +75,8 @@ Deno.test("/api/token-usage is visible to any authenticated user and includes al
     requests: 1,
     inputTokens: 20,
     outputTokens: 8,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
   });
 
   const response = await requestApp("/api/token-usage?start=2026-03-15T00&end=2026-03-16T00", {

@@ -80,7 +80,7 @@ export function dashboardAssets() {
       tokenData: [],
       tokenChart: null,
       tokenLoading: false,
-      tokenSummary: { requests: 0, input: 0, output: 0 },
+      tokenSummary: { requests: 0, input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
       exportLoading: false,
       importFile: null,
       importData: null,
@@ -610,12 +610,25 @@ export function dashboardAssets() {
             let totalReqs = 0;
             let totalIn = 0;
             let totalOut = 0;
+            let totalCacheRead = 0;
+            let totalCacheCreation = 0;
+            const perKeyStats = new Map();
             for (const r of data) {
               totalReqs += r.requests;
               totalIn += r.inputTokens;
               totalOut += r.outputTokens;
+              totalCacheRead += r.cacheReadTokens || 0;
+              totalCacheCreation += r.cacheCreationTokens || 0;
+              const prev = perKeyStats.get(r.keyId) || { requests: 0, input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+              prev.requests += r.requests;
+              prev.input += r.inputTokens;
+              prev.output += r.outputTokens;
+              prev.cacheRead += r.cacheReadTokens || 0;
+              prev.cacheCreation += r.cacheCreationTokens || 0;
+              perKeyStats.set(r.keyId, prev);
             }
-            this.tokenSummary = { requests: totalReqs, input: totalIn, output: totalOut };
+            this.tokenSummary = { requests: totalReqs, input: totalIn, output: totalOut, cacheRead: totalCacheRead, cacheCreation: totalCacheCreation };
+            this._perKeyStats = perKeyStats;
 
             const bucketMap = new Map();
             const now = new Date();
@@ -638,6 +651,8 @@ export function dashboardAssets() {
             const keyIds = new Set();
             const agg = new Map();
             for (const [key] of bucketMap) agg.set(key, new Map());
+            const aggDetail = new Map();
+            for (const [key] of bucketMap) aggDetail.set(key, new Map());
             for (const r of data) {
               const utc = new Date(r.hour + ':00:00Z');
               const bucket = isDaily ? this.localDateKey(utc) : this.localHourKey(utc);
@@ -645,11 +660,20 @@ export function dashboardAssets() {
               keyIds.add(r.keyId);
               const m = agg.get(bucket);
               m.set(r.keyId, (m.get(r.keyId) || 0) + r.inputTokens + r.outputTokens);
+              const dm = aggDetail.get(bucket);
+              const prev = dm.get(r.keyId) || { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+              prev.input += r.inputTokens;
+              prev.output += r.outputTokens;
+              prev.cacheRead += r.cacheReadTokens || 0;
+              prev.cacheCreation += r.cacheCreationTokens || 0;
+              dm.set(r.keyId, prev);
             }
+            this._aggDetail = aggDetail;
 
             const keyList = [...keyIds].sort((a, b) => (keyNameMap.get(a) || a).localeCompare(keyNameMap.get(b) || b));
             const labels = [...bucketMap.values()];
             const bucketKeys = [...bucketMap.keys()];
+            this._bucketKeys = bucketKeys;
             const datasets = keyList.map((keyId, i) => {
               const c = palette[i % palette.length];
               return {
@@ -671,6 +695,8 @@ export function dashboardAssets() {
               this.tokenChart = null;
             }
 
+            this._keyList = keyList;
+
             this.tokenChart = new Chart(canvas, {
               type: 'line',
               data: { labels, datasets },
@@ -682,6 +708,27 @@ export function dashboardAssets() {
                 plugins: {
                   legend: {
                     position: 'bottom',
+                    onClick: (e, legendItem, legend) => {
+                      // Default toggle behavior
+                      const idx = legendItem.datasetIndex;
+                      const chart = legend.chart;
+                      chart.isDatasetVisible(idx) ? chart.hide(idx) : chart.show(idx);
+                      // Recalculate summary for visible datasets
+                      const stats = this._perKeyStats;
+                      const keys = this._keyList;
+                      let reqs = 0, inp = 0, out = 0, cr = 0, cc = 0;
+                      keys.forEach((keyId, i) => {
+                        if (!chart.isDatasetVisible(i)) return;
+                        const s = stats.get(keyId);
+                        if (!s) return;
+                        reqs += s.requests;
+                        inp += s.input;
+                        out += s.output;
+                        cr += s.cacheRead;
+                        cc += s.cacheCreation;
+                      });
+                      this.tokenSummary = { requests: reqs, input: inp, output: out, cacheRead: cr, cacheCreation: cc };
+                    },
                     labels: {
                       color: '#9e9e9e',
                       font: { size: 11, family: "'DM Sans', sans-serif" },
@@ -700,7 +747,22 @@ export function dashboardAssets() {
                     padding: 12,
                     bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
                     callbacks: {
-                      label: (ctx) => ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString() + ' tokens',
+                      label: (ctx) => {
+                        const bucketKey = this._bucketKeys[ctx.dataIndex];
+                        const keyId = this._keyList[ctx.datasetIndex];
+                        const detail = this._aggDetail.get(bucketKey)?.get(keyId);
+                        if (!detail) return ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString() + ' tokens';
+                        const cacheTotal = detail.cacheRead + detail.cacheCreation;
+                        const hitRate = cacheTotal > 0 ? ((detail.cacheRead / cacheTotal) * 100).toFixed(1) + '%' : '—';
+                        return [
+                          ctx.dataset.label + ':',
+                          '  input:     ' + detail.input.toLocaleString(),
+                          '  output:    ' + detail.output.toLocaleString(),
+                          '  cache rd:  ' + detail.cacheRead.toLocaleString(),
+                          '  cache wr:  ' + detail.cacheCreation.toLocaleString(),
+                          '  hit rate:  ' + hitRate,
+                        ];
+                      },
                     },
                   },
                 },
