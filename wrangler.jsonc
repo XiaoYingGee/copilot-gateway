@@ -3,12 +3,12 @@
   "name": "copilot",
   "main": "entry-cloudflare.ts",
   "compatibility_date": "2025-01-01",
-  "account_id": "d32ca7d60599b24f70402c9aaaf5cf5d",
+  "account_id": "a49c8a74b8cbc962ad459cc234e9011a",
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "copilot-db",
-      "database_id": "0e00645b-2e6c-40c6-b67c-682c7aa5b63b",
+      "database_id": "927eca3e-9dcb-4574-afba-89b051db66cf",
       "migrations_dir": "migrations"
     }
   ]
