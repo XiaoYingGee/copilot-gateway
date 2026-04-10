@@ -80,7 +80,7 @@ export function dashboardAssets() {
       tokenData: [],
       tokenChart: null,
       tokenLoading: false,
-      tokenSummary: { requests: 0, input: 0, output: 0 },
+      tokenSummary: { requests: 0, input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
       exportLoading: false,
       importFile: null,
       importData: null,
@@ -610,12 +610,25 @@ export function dashboardAssets() {
             let totalReqs = 0;
             let totalIn = 0;
             let totalOut = 0;
+            let totalCacheRead = 0;
+            let totalCacheCreation = 0;
+            const perKeyStats = new Map();
             for (const r of data) {
               totalReqs += r.requests;
               totalIn += r.inputTokens;
               totalOut += r.outputTokens;
+              totalCacheRead += r.cacheReadTokens || 0;
+              totalCacheCreation += r.cacheCreationTokens || 0;
+              const prev = perKeyStats.get(r.keyId) || { requests: 0, input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+              prev.requests += r.requests;
+              prev.input += r.inputTokens;
+              prev.output += r.outputTokens;
+              prev.cacheRead += r.cacheReadTokens || 0;
+              prev.cacheCreation += r.cacheCreationTokens || 0;
+              perKeyStats.set(r.keyId, prev);
             }
-            this.tokenSummary = { requests: totalReqs, input: totalIn, output: totalOut };
+            this.tokenSummary = { requests: totalReqs, input: totalIn, output: totalOut, cacheRead: totalCacheRead, cacheCreation: totalCacheCreation };
+            this._perKeyStats = perKeyStats;
 
             const bucketMap = new Map();
             const now = new Date();
@@ -671,6 +684,8 @@ export function dashboardAssets() {
               this.tokenChart = null;
             }
 
+            this._keyList = keyList;
+
             this.tokenChart = new Chart(canvas, {
               type: 'line',
               data: { labels, datasets },
@@ -682,6 +697,27 @@ export function dashboardAssets() {
                 plugins: {
                   legend: {
                     position: 'bottom',
+                    onClick: (e, legendItem, legend) => {
+                      // Default toggle behavior
+                      const idx = legendItem.datasetIndex;
+                      const chart = legend.chart;
+                      chart.isDatasetVisible(idx) ? chart.hide(idx) : chart.show(idx);
+                      // Recalculate summary for visible datasets
+                      const stats = this._perKeyStats;
+                      const keys = this._keyList;
+                      let reqs = 0, inp = 0, out = 0, cr = 0, cc = 0;
+                      keys.forEach((keyId, i) => {
+                        if (!chart.isDatasetVisible(i)) return;
+                        const s = stats.get(keyId);
+                        if (!s) return;
+                        reqs += s.requests;
+                        inp += s.input;
+                        out += s.output;
+                        cr += s.cacheRead;
+                        cc += s.cacheCreation;
+                      });
+                      this.tokenSummary = { requests: reqs, input: inp, output: out, cacheRead: cr, cacheCreation: cc };
+                    },
                     labels: {
                       color: '#9e9e9e',
                       font: { size: 11, family: "'DM Sans', sans-serif" },
