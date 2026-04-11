@@ -761,7 +761,7 @@ export function dashboardAssets() {
 
             this.updateSummary();
 
-            const fmtNum = (n) => n.toLocaleString();
+            const fmtNum = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n);
 
             const makeOptions = (onClick, chartType) => ({
               responsive: true,
@@ -793,23 +793,17 @@ export function dashboardAssets() {
                   itemSort: (a, b) => b.parsed.y - a.parsed.y,
                   callbacks: {
                     label: (ctx) => {
+                      const maxLen = ctx.chart.data.datasets.reduce((m, ds) => Math.max(m, ds.label?.length || 0), 0);
                       const bucket = bucketKeysArr[ctx.dataIndex];
                       const dimKey = chartType === 'key' ? ctx.dataset._keyId : ctx.dataset._model;
                       const detailMap = _detailMaps[chartType];
                       const d = detailMap?.get(bucket)?.get(dimKey);
-                      const lines = [ctx.dataset.label + ':'];
                       if (d) {
-                        lines.push('  input:    ' + fmtNum(d.input));
-                        lines.push('  output:   ' + fmtNum(d.output));
-                        lines.push('  cache rd: ' + fmtNum(d.cacheRead));
-                        lines.push('  cache wr: ' + fmtNum(d.cacheCreation));
                         const total = d.cacheRead + d.cacheCreation;
-                        const rate = total > 0 ? ((d.cacheRead / total) * 100).toFixed(1) + '%' : '\\u2014';
-                        lines.push('  hit rate: ' + rate);
-                      } else {
-                        lines.push('  total: ' + fmtNum(ctx.parsed.y) + ' tokens');
+                        const rate = total > 0 ? ((d.cacheRead / total) * 100).toFixed(0) + '%' : '\u2014';
+                        return ctx.dataset.label.padEnd(maxLen + 1) + 'in ' + fmtNum(d.input).padStart(7) + '  out ' + fmtNum(d.output).padStart(7) + '  cache ' + rate.padStart(4);
                       }
-                      return lines;
+                      return ctx.dataset.label.padEnd(maxLen + 1) + fmtNum(ctx.parsed.y).padStart(7);
                     },
                   },
                 },
