@@ -35,6 +35,7 @@ export interface AnthropicToResponsesStreamState {
   inputTokens: number;
   outputTokens: number;
   cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
 }
 
 export function createAnthropicToResponsesStreamState(
@@ -54,6 +55,7 @@ export function createAnthropicToResponsesStreamState(
     inputTokens: 0,
     outputTokens: 0,
     cacheReadInputTokens: undefined,
+    cacheCreationInputTokens: undefined,
   };
 }
 
@@ -84,6 +86,7 @@ function handleMessageStart(event: AnthropicMessageStartEvent, state: AnthropicT
   const message = event.message;
   state.inputTokens = message.usage?.input_tokens ?? 0;
   state.cacheReadInputTokens = message.usage?.cache_read_input_tokens;
+  state.cacheCreationInputTokens = message.usage?.cache_creation_input_tokens;
 
   if (state.responseCreated) return [];
   state.responseCreated = true;
@@ -235,7 +238,7 @@ function handleError(event: AnthropicErrorEvent, state: AnthropicToResponsesStre
 }
 
 function buildResult(state: AnthropicToResponsesStreamState, status: ResponsesResult["status"]): ResponsesResult {
-  const totalInputTokens = state.inputTokens + (state.cacheReadInputTokens ?? 0);
+  const totalInputTokens = state.inputTokens + (state.cacheReadInputTokens ?? 0) + (state.cacheCreationInputTokens ?? 0);
   return {
     id: state.responseId,
     object: "response",

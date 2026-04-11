@@ -152,6 +152,7 @@ function contextWindowErrorResponse(c: Context) {
 export const messages = async (c: Context) => {
   try {
     const payload = await c.req.json<AnthropicMessagesPayload>();
+    c.set("model", payload.model ?? "unknown");
 
     const { token: githubToken, accountType } = await getGithubCredentials();
 

@@ -12,7 +12,7 @@ export function LoginPage() {
         <!-- Ambient glow background -->
         <div class="fixed top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-accent-cyan/5 rounded-full blur-[120px] pointer-events-none"></div>
 
-        <div class="w-full max-w-md" x-data="loginApp()">
+        <div class="w-full max-w-md" x-cloak x-data="loginApp()">
           <!-- Auto-login spinner -->
           <template x-if="autoLogin">
             <div class="flex flex-col items-center gap-4 animate-in">
@@ -133,6 +133,9 @@ export function LoginPage() {
                 } else {
                   localStorage.removeItem('authKey');
                   localStorage.removeItem('isAdmin');
+                  localStorage.removeItem('login_key_id');
+                  localStorage.removeItem('login_key_name');
+                  localStorage.removeItem('login_key_hint');
                   this.autoLogin = false;
                   this.error = data.error || 'Authentication failed';
                 }

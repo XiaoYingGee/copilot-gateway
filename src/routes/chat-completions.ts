@@ -145,6 +145,7 @@ function fixStream(
 export const chatCompletions = async (c: Context) => {
   try {
     const body = await c.req.json<ChatCompletionsPayload>();
+    c.set("model", body.model ?? "unknown");
     const { token: githubToken, accountType } = await getGithubCredentials();
 
     const route = await decideRoute(body, githubToken, accountType);

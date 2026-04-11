@@ -64,7 +64,7 @@ export function translateMessagesToChatCompletion(
   if (reasoningOpaque) message.reasoning_opaque = reasoningOpaque;
 
   const promptTokens =
-    resp.usage.input_tokens + (resp.usage.cache_read_input_tokens ?? 0);
+    resp.usage.input_tokens + (resp.usage.cache_read_input_tokens ?? 0) + (resp.usage.cache_creation_input_tokens ?? 0);
   const completionTokens = resp.usage.output_tokens;
 
   return {

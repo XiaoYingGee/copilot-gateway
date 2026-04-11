@@ -16,15 +16,10 @@ export const usageMiddleware = async (c: Context, next: Next) => {
     return next();
   }
 
-  // Extract model from request body
-  let model = "unknown";
-  try {
-    const cloned = c.req.raw.clone();
-    const body = await cloned.json();
-    if (typeof body.model === "string") model = body.model;
-  } catch { /* ignore parse errors */ }
-
   await next();
+
+  // Read model set by route handlers (avoids redundant JSON.parse of request body)
+  const model: string = c.get("model") ?? "unknown";
 
   const keyId: string | undefined = c.get("apiKeyId");
   if (!keyId) return;

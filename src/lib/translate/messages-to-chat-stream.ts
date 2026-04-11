@@ -16,6 +16,7 @@ export interface ChatStreamState {
   currentToolCallName: string;
   inputTokens: number;
   cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
 }
 
 export function createChatStreamState(): ChatStreamState {
@@ -29,6 +30,7 @@ export function createChatStreamState(): ChatStreamState {
     currentToolCallName: "",
     inputTokens: 0,
     cacheReadInputTokens: 0,
+    cacheCreationInputTokens: 0,
   };
 }
 
@@ -46,6 +48,7 @@ export function translateAnthropicEventToChatChunks(
       state.model = event.message.model;
       state.inputTokens = event.message.usage.input_tokens;
       state.cacheReadInputTokens = event.message.usage.cache_read_input_tokens ?? 0;
+      state.cacheCreationInputTokens = event.message.usage.cache_creation_input_tokens ?? 0;
       return [makeChunk(state, { role: "assistant" })];
     }
 
@@ -120,7 +123,7 @@ export function translateAnthropicEventToChatChunks(
       const chunk = makeChunk(state, {}, finishReason);
 
       if (event.usage) {
-        const promptTokens = state.inputTokens + state.cacheReadInputTokens;
+        const promptTokens = state.inputTokens + state.cacheReadInputTokens + state.cacheCreationInputTokens;
         const completionTokens = event.usage.output_tokens;
         chunk.usage = {
           prompt_tokens: promptTokens,

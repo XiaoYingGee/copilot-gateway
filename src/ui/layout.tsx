@@ -58,6 +58,8 @@ export function Layout({
     }
   </script>
   <style>
+    [x-cloak] { display: none !important; }
+
     body {
       background: #06080a;
       color: #e0e0e0;

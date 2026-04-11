@@ -580,7 +580,8 @@ export function translateAnthropicToResponsesResult(
   }
 
   const inputTokens = response.usage.input_tokens +
-    (response.usage.cache_read_input_tokens ?? 0);
+    (response.usage.cache_read_input_tokens ?? 0) +
+    (response.usage.cache_creation_input_tokens ?? 0);
 
   return {
     id: response.id,

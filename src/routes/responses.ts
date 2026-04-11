@@ -118,6 +118,7 @@ function fixStreamIds(
 export const responses = async (c: Context) => {
   try {
     const payload = await c.req.json<ResponsesPayload>();
+    c.set("model", payload.model ?? "unknown");
     const { token: githubToken, accountType } = await getGithubCredentials();
     const model = payload.model;
 
