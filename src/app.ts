@@ -19,6 +19,8 @@ import {
 } from "./routes/auth.ts";
 import { authMiddleware, adminOnlyMiddleware } from "./middleware/auth.ts";
 import { usageMiddleware } from "./middleware/usage.ts";
+import { requestLogMiddleware } from "./middleware/request-log.ts";
+import { cleanupOldLogs } from "./lib/request-logger.ts";
 import { LoginPage } from "./ui/login.tsx";
 import { DashboardPage } from "./ui/dashboard.tsx";
 import { listKeys, createKey, deleteKey, rotateKey, renameKey } from "./routes/api-keys.ts";
@@ -31,6 +33,12 @@ app.use("*", logger());
 app.use("*", cors());
 app.use("*", authMiddleware);
 app.use("*", usageMiddleware);
+app.use("*", requestLogMiddleware);
+
+// Cleanup old logs every hour
+setInterval(() => {
+  cleanupOldLogs().then((n) => { if (n > 0) console.log(`[request-logger] cleaned ${n} old log files`); });
+}, 60 * 60 * 1000);
 
 app.get("/", (c) => {
   const accept = c.req.header("accept") ?? "";

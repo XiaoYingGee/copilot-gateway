@@ -164,7 +164,23 @@ export const messages = async (c: Context) => {
     }
 
     stripReservedKeywords(payload);
+
+    // Capture cache_control before/after strip for request logging
+    const { extractCacheControlMarkers } = await import("../lib/request-logger.ts");
+    c.set("ccBefore", extractCacheControlMarkers(payload));
+
+    // Capture system prompt hash and message count for request logging
+    const sysText = Array.isArray(payload.system) ? JSON.stringify(payload.system) : String(payload.system || "");
+    let hash = 0;
+    for (let i = 0; i < sysText.length; i++) hash = ((hash << 5) - hash + sysText.charCodeAt(i)) | 0;
+    c.set("systemHash", hash.toString(16));
+    c.set("systemLength", sysText.length);
+    c.set("messageCount", payload.messages?.length || 0);
+
     stripCacheControlScope(payload);
+
+    stripCacheControlScope(payload);
+    c.set("ccAfter", extractCacheControlMarkers(payload));
 
     const vision = hasVision(payload);
     const initiator = getInitiator(payload);
