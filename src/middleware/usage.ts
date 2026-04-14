@@ -5,7 +5,12 @@ import type { Context, Next } from "hono";
 import { recordUsage } from "../lib/usage-tracker.ts";
 import { touchApiKeyLastUsed } from "../lib/api-keys.ts";
 
-const PROXY_SUFFIXES = ["/messages", "/chat/completions", "/responses", "/embeddings"];
+const PROXY_SUFFIXES = [
+  "/messages",
+  "/chat/completions",
+  "/responses",
+  "/embeddings",
+];
 
 function isProxyPath(path: string): boolean {
   return PROXY_SUFFIXES.some((s) => path === s || path === `/v1${s}`);
@@ -39,18 +44,31 @@ export const usageMiddleware = async (c: Context, next: Next) => {
   }
 };
 
-async function interceptNonStreaming(c: Context, keyId: string, model: string): Promise<void> {
+async function interceptNonStreaming(
+  c: Context,
+  keyId: string,
+  model: string,
+): Promise<void> {
   const original = c.res;
   const cloned = original.clone();
   // deno-lint-ignore no-explicit-any
   let json: any;
-  try { json = await cloned.json(); } catch { return; }
+  try {
+    json = await cloned.json();
+  } catch {
+    return;
+  }
 
   const usage = extractUsageFromJson(json);
   if (usage) {
-    const p1 = recordUsage(keyId, model, usage.input, usage.output).catch((e) =>
-      console.error("Usage record error:", e)
-    );
+    const p1 = recordUsage(
+      keyId,
+      model,
+      usage.input,
+      usage.output,
+      usage.cacheRead,
+      usage.cacheCreation,
+    ).catch((e) => console.error("Usage record error:", e));
     const p2 = touchApiKeyLastUsed(keyId).catch((e) =>
       console.error("Touch lastUsedAt error:", e)
     );
@@ -64,55 +82,43 @@ function interceptStreaming(c: Context, keyId: string, model: string): void {
   const body = original.body;
   if (!body) return;
 
-  let inputTokens = 0;
-  let outputTokens = 0;
+  const usage: UsageInfo = {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheCreation: 0,
+  };
   let gotInputFromStart = false;
   let buffer = "";
+  const decoder = new TextDecoder();
 
   const transform = new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
       controller.enqueue(chunk);
 
-      // Parse SSE lines to find usage
-      buffer += new TextDecoder().decode(chunk);
+      buffer += decoder.decode(chunk, { stream: true });
       const lines = buffer.split("\n");
-      buffer = lines.pop() ?? ""; // keep incomplete line
+      buffer = lines.pop() ?? "";
 
       for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const data = line.slice(6).trim();
-        if (!data || data === "[DONE]") continue;
-
-        try {
-          const parsed = JSON.parse(data);
-          extractUsageFromStreamEvent(parsed, gotInputFromStart, (i, o, fromStart) => {
-            inputTokens += i;
-            outputTokens += o;
-            if (fromStart) gotInputFromStart = true;
-          });
-        } catch { /* ignore non-JSON lines */ }
+        gotInputFromStart = consumeUsageLine(line, usage, gotInputFromStart);
       }
     },
     flush() {
-      // Process any remaining buffer
-      if (buffer.startsWith("data: ")) {
-        const data = buffer.slice(6).trim();
-        if (data && data !== "[DONE]") {
-          try {
-            const parsed = JSON.parse(data);
-            extractUsageFromStreamEvent(parsed, gotInputFromStart, (i, o, fromStart) => {
-              inputTokens += i;
-              outputTokens += o;
-              if (fromStart) gotInputFromStart = true;
-            });
-          } catch { /* ignore */ }
-        }
+      buffer += decoder.decode();
+      if (buffer) {
+        gotInputFromStart = consumeUsageLine(buffer, usage, gotInputFromStart);
       }
 
-      if (inputTokens > 0 || outputTokens > 0) {
-        const p1 = recordUsage(keyId, model, inputTokens, outputTokens).catch((e) =>
-          console.error("Usage record error:", e)
-        );
+      if (usage.input > 0 || usage.output > 0) {
+        const p1 = recordUsage(
+          keyId,
+          model,
+          usage.input,
+          usage.output,
+          usage.cacheRead,
+          usage.cacheCreation,
+        ).catch((e) => console.error("Usage record error:", e));
         const p2 = touchApiKeyLastUsed(keyId).catch((e) =>
           console.error("Touch lastUsedAt error:", e)
         );
@@ -141,51 +147,148 @@ function safeWaitUntil(c: Context, promise: Promise<unknown>): void {
 interface UsageInfo {
   input: number;
   output: number;
+  cacheRead: number;
+  cacheCreation: number;
+}
+
+interface StreamUsageInfo extends UsageInfo {
+  fromStart: boolean;
+}
+
+type JsonObject = Record<string, unknown>;
+
+function asObject(value: unknown): JsonObject | null {
+  return value !== null && typeof value === "object"
+    ? value as JsonObject
+    : null;
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === "number" ? value : null;
+}
+
+function addUsage(total: UsageInfo, next: UsageInfo): void {
+  total.input += next.input;
+  total.output += next.output;
+  total.cacheRead += next.cacheRead;
+  total.cacheCreation += next.cacheCreation;
+}
+
+function consumeUsageLine(
+  line: string,
+  usage: UsageInfo,
+  gotInputFromStart: boolean,
+): boolean {
+  if (!line.startsWith("data: ")) return gotInputFromStart;
+
+  const data = line.slice(6).trim();
+  if (!data || data === "[DONE]") return gotInputFromStart;
+
+  try {
+    const parsed = JSON.parse(data);
+    const extracted = extractUsageFromStreamEvent(parsed, gotInputFromStart);
+    if (!extracted) return gotInputFromStart;
+
+    addUsage(usage, extracted);
+    return gotInputFromStart || extracted.fromStart;
+  } catch {
+    return gotInputFromStart;
+  }
 }
 
 // deno-lint-ignore no-explicit-any
 function extractUsageFromJson(json: any): UsageInfo | null {
-  // Anthropic Messages: { usage: { input_tokens, output_tokens } }
   if (json?.usage?.input_tokens != null) {
-    return { input: json.usage.input_tokens + (json.usage.cache_read_input_tokens ?? 0) + (json.usage.cache_creation_input_tokens ?? 0), output: json.usage.output_tokens ?? 0 };
+    const cacheRead = json.usage.cache_read_input_tokens ?? 0;
+    const cacheCreation = json.usage.cache_creation_input_tokens ?? 0;
+    return {
+      input: json.usage.input_tokens + cacheRead + cacheCreation,
+      output: json.usage.output_tokens ?? 0,
+      cacheRead,
+      cacheCreation,
+    };
   }
-  // OpenAI Chat Completions: { usage: { prompt_tokens, completion_tokens } }
+
   if (json?.usage?.prompt_tokens != null) {
-    return { input: json.usage.prompt_tokens, output: json.usage.completion_tokens ?? 0 };
+    return {
+      input: json.usage.prompt_tokens,
+      output: json.usage.completion_tokens ?? 0,
+      cacheRead: json.usage.prompt_tokens_details?.cached_tokens ?? 0,
+      cacheCreation: 0,
+    };
   }
+
   return null;
 }
 
-// deno-lint-ignore no-explicit-any
-function extractUsageFromStreamEvent(parsed: any, gotInputFromStart: boolean, add: (input: number, output: number, fromStart: boolean) => void): void {
-  // Anthropic message_start: { message: { usage: { input_tokens } } }
-  if (parsed.type === "message_start" && parsed.message?.usage) {
-    const u = parsed.message.usage;
-    const inputFromStart = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
-    if (inputFromStart > 0) {
-      add(inputFromStart, 0, true);
-    }
+function extractUsageFromStreamEvent(
+  parsed: unknown,
+  gotInputFromStart: boolean,
+): StreamUsageInfo | null {
+  const payload = asObject(parsed);
+  if (!payload) return null;
+
+  if (payload.type === "message_start") {
+    const message = asObject(payload.message);
+    const usage = asObject(message?.usage);
+    if (!usage) return null;
+
+    const cacheRead = readNumber(usage.cache_read_input_tokens) ?? 0;
+    const cacheCreation = readNumber(usage.cache_creation_input_tokens) ?? 0;
+    const input = (readNumber(usage.input_tokens) ?? 0) + cacheRead +
+      cacheCreation;
+    return input > 0
+      ? { input, output: 0, cacheRead, cacheCreation, fromStart: true }
+      : null;
   }
-  // Anthropic message_delta: { usage: { output_tokens, input_tokens? } }
+
   // In translated streams (OpenAI→Anthropic), the message_start may have
   // input_tokens=0 because the upstream usage-only chunk arrives after the
   // first chunk. The usage-only chunk generates a supplemental message_delta
   // carrying both input_tokens and output_tokens. We only extract input_tokens
   // from message_delta when message_start didn't already provide them.
-  if (parsed.type === "message_delta" && parsed.usage?.output_tokens != null) {
-    let deltaInput = 0;
-    if (!gotInputFromStart && parsed.usage.input_tokens != null) {
-      deltaInput = (parsed.usage.input_tokens ?? 0) + (parsed.usage.cache_read_input_tokens ?? 0) + (parsed.usage.cache_creation_input_tokens ?? 0);
+  if (payload.type === "message_delta") {
+    const usage = asObject(payload.usage);
+    if (!usage) return null;
+    const output = readNumber(usage.output_tokens);
+    if (output == null) return null;
+
+    let input = 0;
+    let cacheRead = 0;
+    let cacheCreation = 0;
+    if (!gotInputFromStart && readNumber(usage.input_tokens) != null) {
+      cacheRead = readNumber(usage.cache_read_input_tokens) ?? 0;
+      cacheCreation = readNumber(usage.cache_creation_input_tokens) ?? 0;
+      input = (readNumber(usage.input_tokens) ?? 0) + cacheRead + cacheCreation;
     }
-    add(deltaInput, parsed.usage.output_tokens, false);
+    return { input, output, cacheRead, cacheCreation, fromStart: false };
   }
-  // Responses response.completed: { response: { usage: { input_tokens, output_tokens } } }
-  if (parsed.type === "response.completed" && parsed.response?.usage) {
-    const u = parsed.response.usage;
-    add(u.input_tokens ?? 0, u.output_tokens ?? 0, false);
+
+  if (payload.type === "response.completed") {
+    const response = asObject(payload.response);
+    const usage = asObject(response?.usage);
+    if (!usage) return null;
+    const details = asObject(usage.input_tokens_details);
+    return {
+      input: readNumber(usage.input_tokens) ?? 0,
+      output: readNumber(usage.output_tokens) ?? 0,
+      cacheRead: readNumber(details?.cached_tokens) ?? 0,
+      cacheCreation: 0,
+      fromStart: false,
+    };
   }
-  // OpenAI Chat Completions chunk with usage
-  if (parsed.usage?.prompt_tokens != null) {
-    add(parsed.usage.prompt_tokens, parsed.usage.completion_tokens ?? 0, false);
+
+  const usage = asObject(payload.usage);
+  if (readNumber(usage?.prompt_tokens) != null) {
+    const details = asObject(usage?.prompt_tokens_details);
+    return {
+      input: readNumber(usage?.prompt_tokens) ?? 0,
+      output: readNumber(usage?.completion_tokens) ?? 0,
+      cacheRead: readNumber(details?.cached_tokens) ?? 0,
+      cacheCreation: 0,
+      fromStart: false,
+    };
   }
+
+  return null;
 }

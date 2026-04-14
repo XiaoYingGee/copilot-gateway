@@ -95,6 +95,14 @@ class MemoryUsageRepo implements UsageRepo {
     return `${r.keyId}\0${r.model}\0${r.hour}`;
   }
 
+  private normalize(record: UsageRecord): UsageRecord {
+    return {
+      ...record,
+      cacheReadTokens: record.cacheReadTokens ?? 0,
+      cacheCreationTokens: record.cacheCreationTokens ?? 0,
+    };
+  }
+
   record(
     keyId: string,
     model: string,
@@ -102,6 +110,8 @@ class MemoryUsageRepo implements UsageRepo {
     requests: number,
     inputTokens: number,
     outputTokens: number,
+    cacheReadTokens = 0,
+    cacheCreationTokens = 0,
   ): Promise<void> {
     const k = this.key({ keyId, model, hour });
     const existing = this.store.get(k);
@@ -109,29 +119,52 @@ class MemoryUsageRepo implements UsageRepo {
       existing.requests += requests;
       existing.inputTokens += inputTokens;
       existing.outputTokens += outputTokens;
+      existing.cacheReadTokens = (existing.cacheReadTokens ?? 0) +
+        cacheReadTokens;
+      existing.cacheCreationTokens = (existing.cacheCreationTokens ?? 0) +
+        cacheCreationTokens;
     } else {
-      this.store.set(k, { keyId, model, hour, requests, inputTokens, outputTokens });
+      this.store.set(
+        k,
+        this.normalize({
+          keyId,
+          model,
+          hour,
+          requests,
+          inputTokens,
+          outputTokens,
+          cacheReadTokens,
+          cacheCreationTokens,
+        }),
+      );
     }
     return Promise.resolve();
   }
 
-  query(opts: { keyId?: string; start: string; end: string }): Promise<UsageRecord[]> {
+  query(
+    opts: { keyId?: string; start: string; end: string },
+  ): Promise<UsageRecord[]> {
     return Promise.resolve(
       [...this.store.values()]
         .filter((r) => {
           if (opts.keyId && r.keyId !== opts.keyId) return false;
           return r.hour >= opts.start && r.hour < opts.end;
         })
+        .map((r) => this.normalize(r))
         .sort((a, b) => a.hour.localeCompare(b.hour)),
     );
   }
 
   listAll(): Promise<UsageRecord[]> {
-    return Promise.resolve([...this.store.values()].sort((a, b) => a.hour.localeCompare(b.hour)));
+    return Promise.resolve(
+      [...this.store.values()]
+        .map((r) => this.normalize(r))
+        .sort((a, b) => a.hour.localeCompare(b.hour)),
+    );
   }
 
   set(record: UsageRecord): Promise<void> {
-    this.store.set(this.key(record), { ...record });
+    this.store.set(this.key(record), this.normalize(record));
     return Promise.resolve();
   }
 

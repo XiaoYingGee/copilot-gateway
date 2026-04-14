@@ -16,6 +16,7 @@ export function dashboardAssets() {
     // Chart instances and key name map stored outside Alpine to avoid reactive proxy wrapping
     const _charts = { key: null, model: null };
     const _keyNameMap = new Map();
+    const _detailMaps = { key: null, model: null };
 
     function destroyCharts() {
       for (const k of ['key', 'model']) {
@@ -24,6 +25,39 @@ export function dashboardAssets() {
     }
 
     const pad2 = (n) => String(n).padStart(2, '0');
+
+    function formatTokenCount(n) {
+      return n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n);
+    }
+
+    function renderHitRate(cacheRead, cacheCreation) {
+      const total = cacheRead + cacheCreation;
+      return total > 0 ? ((cacheRead / total) * 100).toFixed(1) + '%' : '\\u2014';
+    }
+
+    function tooltipLabelWidth(chart) {
+      return chart.data.datasets.reduce((maxLen, ds) => Math.max(maxLen, String(ds.label || '').length), 0);
+    }
+
+    function formatTooltipHeader(labelWidth) {
+      return '  ' + ''.padEnd(labelWidth + 1)
+        + 'Req'.padStart(5)
+        + '  ' + 'Total'.padStart(7)
+        + '  ' + 'Input'.padStart(7)
+        + '  ' + 'Output'.padStart(7)
+        + '  ' + 'CacheW'.padStart(7)
+        + '  ' + 'HitRate'.padStart(7);
+    }
+
+    function formatTooltipRow(label, labelWidth, detail) {
+      return label.padEnd(labelWidth + 1)
+        + String(detail.requests).padStart(5)
+        + '  ' + formatTokenCount(detail.input + detail.output).padStart(7)
+        + '  ' + formatTokenCount(detail.input).padStart(7)
+        + '  ' + formatTokenCount(detail.output).padStart(7)
+        + '  ' + formatTokenCount(detail.cacheCreation).padStart(7)
+        + '  ' + renderHitRate(detail.cacheRead, detail.cacheCreation).padStart(7);
+    }
 
     const CLAUDE_TIER = { opus: 0, sonnet: 1, haiku: 2 };
 
@@ -91,7 +125,7 @@ export function dashboardAssets() {
       tokenData: [],
       chartsReady: false,
       tokenLoading: false,
-      tokenSummary: { requests: 0, input: 0, output: 0 },
+      tokenSummary: { requests: 0, total: 0, input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
       hiddenKeys: new Set(),
       hiddenModels: new Set(),
       redactKeys: false,
@@ -115,6 +149,10 @@ export function dashboardAssets() {
       truncateKey(key) {
         if (!key || key.length <= 12) return key;
         return key.slice(0, 4) + '\\u2026' + key.slice(-4);
+      },
+
+      formatHitRate(cacheRead, cacheCreation) {
+        return renderHitRate(cacheRead, cacheCreation);
       },
 
       timeAgo(dateStr) {
@@ -624,7 +662,11 @@ export function dashboardAssets() {
             const isDaily = this.tokenRange !== 'today';
             const bucketMap = this.buildBucketMap();
             const agg = new Map();
-            for (const [key] of bucketMap) agg.set(key, new Map());
+            const detail = new Map();
+            for (const [key] of bucketMap) {
+              agg.set(key, new Map());
+              detail.set(key, new Map());
+            }
             for (const r of records) {
               const utc = new Date(r.hour + ':00:00Z');
               const bucket = isDaily ? this.localDateKey(utc) : this.localHourKey(utc);
@@ -632,19 +674,36 @@ export function dashboardAssets() {
               const m = agg.get(bucket);
               const val = r[dimension];
               m.set(val, (m.get(val) || 0) + r.inputTokens + r.outputTokens);
+              const dm = detail.get(bucket);
+              const prev = dm.get(val) || { requests: 0, input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+              prev.requests += r.requests;
+              prev.input += r.inputTokens;
+              prev.output += r.outputTokens;
+              prev.cacheRead += r.cacheReadTokens ?? 0;
+              prev.cacheCreation += r.cacheCreationTokens ?? 0;
+              dm.set(val, prev);
             }
-            return { bucketMap, agg };
+            return { bucketMap, agg, detail };
           },
 
           updateSummary() {
             const filtered = this.tokenData.filter((r) => !this.hiddenKeys.has(r.keyId) && !this.hiddenModels.has(r.model));
-            let totalReqs = 0, totalIn = 0, totalOut = 0;
+            let totalReqs = 0, totalIn = 0, totalOut = 0, totalCR = 0, totalCC = 0;
             for (const r of filtered) {
               totalReqs += r.requests;
               totalIn += r.inputTokens;
               totalOut += r.outputTokens;
+              totalCR += r.cacheReadTokens ?? 0;
+              totalCC += r.cacheCreationTokens ?? 0;
             }
-            this.tokenSummary = { requests: totalReqs, input: totalIn, output: totalOut };
+            this.tokenSummary = {
+              requests: totalReqs,
+              total: totalIn + totalOut,
+              input: totalIn,
+              output: totalOut,
+              cacheRead: totalCR,
+              cacheCreation: totalCC,
+            };
           },
 
           refreshChartsData() {
@@ -653,7 +712,8 @@ export function dashboardAssets() {
 
             if (_charts.key) {
               const filtered = this.tokenData.filter((r) => !this.hiddenModels.has(r.model));
-              const { agg } = this.aggregateBuckets(filtered, 'keyId');
+              const { agg, detail } = this.aggregateBuckets(filtered, 'keyId');
+              _detailMaps.key = detail;
               for (let i = 0; i < _charts.key.data.datasets.length; i++) {
                 const ds = _charts.key.data.datasets[i];
                 ds.data = bucketKeysArr.map((k) => agg.get(k)?.get(ds._keyId) || 0);
@@ -666,7 +726,8 @@ export function dashboardAssets() {
 
             if (_charts.model) {
               const filtered = this.tokenData.filter((r) => !this.hiddenKeys.has(r.keyId));
-              const { agg } = this.aggregateBuckets(filtered, 'model');
+              const { agg, detail } = this.aggregateBuckets(filtered, 'model');
+              _detailMaps.model = detail;
               for (let i = 0; i < _charts.model.data.datasets.length; i++) {
                 const ds = _charts.model.data.datasets[i];
                 ds.data = bucketKeysArr.map((k) => agg.get(k)?.get(ds._model) || 0);
@@ -703,8 +764,10 @@ export function dashboardAssets() {
             const labels = [...bucketMap.values()];
             const bucketKeysArr = [...bucketMap.keys()];
 
-            const { agg: keyAgg } = this.aggregateBuckets(data, 'keyId');
-            const { agg: modelAgg } = this.aggregateBuckets(data, 'model');
+            const { agg: keyAgg, detail: keyDetail } = this.aggregateBuckets(data, 'keyId');
+            const { agg: modelAgg, detail: modelDetail } = this.aggregateBuckets(data, 'model');
+            _detailMaps.key = keyDetail;
+            _detailMaps.model = modelDetail;
 
             const keyList = [...allKeyIds].sort((a, b) => (keyNameMap.get(a) || a).localeCompare(keyNameMap.get(b) || b));
             const modelList = [...allModels].sort();
@@ -743,7 +806,7 @@ export function dashboardAssets() {
 
             this.updateSummary();
 
-            const makeOptions = (onClick) => ({
+            const makeOptions = (onClick, chartType) => ({
               responsive: true,
               maintainAspectRatio: false,
               animation: false,
@@ -768,11 +831,23 @@ export function dashboardAssets() {
                   titleColor: '#e0e0e0',
                   bodyColor: '#b0bec5',
                   padding: 12,
+                  beforeBodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
                   bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
                   filter: (item) => item.parsed.y > 0,
                   itemSort: (a, b) => b.parsed.y - a.parsed.y,
                   callbacks: {
-                    label: (ctx) => ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString() + ' tokens',
+                    beforeBody: (items) => {
+                      if (!items.length) return [];
+                      return formatTooltipHeader(tooltipLabelWidth(items[0].chart));
+                    },
+                    label: (ctx) => {
+                      const bucket = bucketKeysArr[ctx.dataIndex];
+                      const dimKey = chartType === 'key' ? ctx.dataset._keyId : ctx.dataset._model;
+                      const detailMap = _detailMaps[chartType];
+                      const detail = detailMap?.get(bucket)?.get(dimKey);
+                      if (!detail) return ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString() + ' tokens';
+                      return formatTooltipRow(String(ctx.dataset.label || ''), tooltipLabelWidth(ctx.chart), detail);
+                    },
                   },
                 },
               },
@@ -790,7 +865,7 @@ export function dashboardAssets() {
                   ticks: {
                     color: '#9e9e9e',
                     font: { size: 10, family: "'JetBrains Mono', monospace" },
-                    callback: (v) => v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(0) + 'K' : v,
+                    callback: (v) => formatTokenCount(Number(v)),
                   },
                   border: { color: 'rgba(255,255,255,0.06)' },
                 },
@@ -807,7 +882,7 @@ export function dashboardAssets() {
                 if (self.hiddenKeys.has(ds._keyId)) self.hiddenKeys.delete(ds._keyId);
                 else self.hiddenKeys.add(ds._keyId);
                 self.refreshChartsData();
-              }),
+              }, 'key'),
             });
 
             _charts.model = new Chart(canvasModel, {
@@ -818,7 +893,7 @@ export function dashboardAssets() {
                 if (self.hiddenModels.has(ds._model)) self.hiddenModels.delete(ds._model);
                 else self.hiddenModels.add(ds._model);
                 self.refreshChartsData();
-              }),
+              }, 'model'),
             });
 
             this.chartsReady = true;

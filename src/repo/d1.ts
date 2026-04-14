@@ -32,24 +32,54 @@ class D1ApiKeyRepo implements ApiKeyRepo {
 
   async list(): Promise<ApiKey[]> {
     const { results } = await this.db
-      .prepare("SELECT id, name, key, created_at, last_used_at FROM api_keys ORDER BY created_at")
-      .all<{ id: string; name: string; key: string; created_at: string; last_used_at: string | null }>();
+      .prepare(
+        "SELECT id, name, key, created_at, last_used_at FROM api_keys ORDER BY created_at",
+      )
+      .all<
+        {
+          id: string;
+          name: string;
+          key: string;
+          created_at: string;
+          last_used_at: string | null;
+        }
+      >();
     return results.map(toApiKey);
   }
 
   async findByRawKey(rawKey: string): Promise<ApiKey | null> {
     const row = await this.db
-      .prepare("SELECT id, name, key, created_at, last_used_at FROM api_keys WHERE key = ?")
+      .prepare(
+        "SELECT id, name, key, created_at, last_used_at FROM api_keys WHERE key = ?",
+      )
       .bind(rawKey)
-      .first<{ id: string; name: string; key: string; created_at: string; last_used_at: string | null }>();
+      .first<
+        {
+          id: string;
+          name: string;
+          key: string;
+          created_at: string;
+          last_used_at: string | null;
+        }
+      >();
     return row ? toApiKey(row) : null;
   }
 
   async getById(id: string): Promise<ApiKey | null> {
     const row = await this.db
-      .prepare("SELECT id, name, key, created_at, last_used_at FROM api_keys WHERE id = ?")
+      .prepare(
+        "SELECT id, name, key, created_at, last_used_at FROM api_keys WHERE id = ?",
+      )
       .bind(id)
-      .first<{ id: string; name: string; key: string; created_at: string; last_used_at: string | null }>();
+      .first<
+        {
+          id: string;
+          name: string;
+          key: string;
+          created_at: string;
+          last_used_at: string | null;
+        }
+      >();
     return row ? toApiKey(row) : null;
   }
 
@@ -64,7 +94,8 @@ class D1ApiKeyRepo implements ApiKeyRepo {
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.db.prepare("DELETE FROM api_keys WHERE id = ?").bind(id).run();
+    const result = await this.db.prepare("DELETE FROM api_keys WHERE id = ?")
+      .bind(id).run();
     return (result.meta.changes as number ?? 0) > 0;
   }
 
@@ -73,7 +104,15 @@ class D1ApiKeyRepo implements ApiKeyRepo {
   }
 }
 
-function toApiKey(row: { id: string; name: string; key: string; created_at: string; last_used_at: string | null }): ApiKey {
+function toApiKey(
+  row: {
+    id: string;
+    name: string;
+    key: string;
+    created_at: string;
+    last_used_at: string | null;
+  },
+): ApiKey {
   return {
     id: row.id,
     name: row.name,
@@ -88,16 +127,38 @@ class D1GitHubRepo implements GitHubRepo {
 
   async listAccounts(): Promise<GitHubAccount[]> {
     const { results } = await this.db
-      .prepare("SELECT user_id, token, account_type, login, name, avatar_url FROM github_accounts")
-      .all<{ user_id: number; token: string; account_type: string; login: string; name: string | null; avatar_url: string }>();
+      .prepare(
+        "SELECT user_id, token, account_type, login, name, avatar_url FROM github_accounts",
+      )
+      .all<
+        {
+          user_id: number;
+          token: string;
+          account_type: string;
+          login: string;
+          name: string | null;
+          avatar_url: string;
+        }
+      >();
     return results.map(toGitHubAccount);
   }
 
   async getAccount(userId: number): Promise<GitHubAccount | null> {
     const row = await this.db
-      .prepare("SELECT user_id, token, account_type, login, name, avatar_url FROM github_accounts WHERE user_id = ?")
+      .prepare(
+        "SELECT user_id, token, account_type, login, name, avatar_url FROM github_accounts WHERE user_id = ?",
+      )
       .bind(userId)
-      .first<{ user_id: number; token: string; account_type: string; login: string; name: string | null; avatar_url: string }>();
+      .first<
+        {
+          user_id: number;
+          token: string;
+          account_type: string;
+          login: string;
+          name: string | null;
+          avatar_url: string;
+        }
+      >();
     return row ? toGitHubAccount(row) : null;
   }
 
@@ -107,12 +168,21 @@ class D1GitHubRepo implements GitHubRepo {
         `INSERT INTO github_accounts (user_id, token, account_type, login, name, avatar_url) VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT (user_id) DO UPDATE SET token = excluded.token, account_type = excluded.account_type, login = excluded.login, name = excluded.name, avatar_url = excluded.avatar_url`,
       )
-      .bind(userId, account.token, account.accountType, account.user.login, account.user.name, account.user.avatar_url)
+      .bind(
+        userId,
+        account.token,
+        account.accountType,
+        account.user.login,
+        account.user.name,
+        account.user.avatar_url,
+      )
       .run();
   }
 
   async deleteAccount(userId: number): Promise<void> {
-    await this.db.prepare("DELETE FROM github_accounts WHERE user_id = ?").bind(userId).run();
+    await this.db.prepare("DELETE FROM github_accounts WHERE user_id = ?").bind(
+      userId,
+    ).run();
   }
 
   async getActiveId(): Promise<number | null> {
@@ -133,16 +203,29 @@ class D1GitHubRepo implements GitHubRepo {
   }
 
   async clearActiveId(): Promise<void> {
-    await this.db.prepare("DELETE FROM config WHERE key = 'active_github_account'").run();
+    await this.db.prepare(
+      "DELETE FROM config WHERE key = 'active_github_account'",
+    ).run();
   }
 
   async deleteAllAccounts(): Promise<void> {
     await this.db.prepare("DELETE FROM github_accounts").run();
-    await this.db.prepare("DELETE FROM config WHERE key = 'active_github_account'").run();
+    await this.db.prepare(
+      "DELETE FROM config WHERE key = 'active_github_account'",
+    ).run();
   }
 }
 
-function toGitHubAccount(row: { user_id: number; token: string; account_type: string; login: string; name: string | null; avatar_url: string }): GitHubAccount {
+function toGitHubAccount(
+  row: {
+    user_id: number;
+    token: string;
+    account_type: string;
+    login: string;
+    name: string | null;
+    avatar_url: string;
+  },
+): GitHubAccount {
   return {
     token: row.token,
     accountType: row.account_type,
@@ -165,28 +248,56 @@ class D1UsageRepo implements UsageRepo {
     requests: number,
     inputTokens: number,
     outputTokens: number,
+    cacheReadTokens = 0,
+    cacheCreationTokens = 0,
   ): Promise<void> {
     await this.db
       .prepare(
-        `INSERT INTO usage (key_id, model, hour, requests, input_tokens, output_tokens) VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO usage (key_id, model, hour, requests, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (key_id, model, hour) DO UPDATE SET
            requests = requests + excluded.requests,
            input_tokens = input_tokens + excluded.input_tokens,
-           output_tokens = output_tokens + excluded.output_tokens`,
+           output_tokens = output_tokens + excluded.output_tokens,
+           cache_read_tokens = cache_read_tokens + excluded.cache_read_tokens,
+           cache_creation_tokens = cache_creation_tokens + excluded.cache_creation_tokens`,
       )
-      .bind(keyId, model, hour, requests, inputTokens, outputTokens)
+      .bind(
+        keyId,
+        model,
+        hour,
+        requests,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        cacheCreationTokens,
+      )
       .run();
   }
 
-  async query(opts: { keyId?: string; start: string; end: string }): Promise<UsageRecord[]> {
+  async query(
+    opts: { keyId?: string; start: string; end: string },
+  ): Promise<UsageRecord[]> {
     const sql = opts.keyId
-      ? "SELECT key_id, model, hour, requests, input_tokens, output_tokens FROM usage WHERE key_id = ? AND hour >= ? AND hour < ? ORDER BY hour"
-      : "SELECT key_id, model, hour, requests, input_tokens, output_tokens FROM usage WHERE hour >= ? AND hour < ? ORDER BY hour";
-    const binds = opts.keyId ? [opts.keyId, opts.start, opts.end] : [opts.start, opts.end];
+      ? "SELECT key_id, model, hour, requests, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens FROM usage WHERE key_id = ? AND hour >= ? AND hour < ? ORDER BY hour"
+      : "SELECT key_id, model, hour, requests, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens FROM usage WHERE hour >= ? AND hour < ? ORDER BY hour";
+    const binds = opts.keyId
+      ? [opts.keyId, opts.start, opts.end]
+      : [opts.start, opts.end];
     const { results } = await this.db
       .prepare(sql)
       .bind(...binds)
-      .all<{ key_id: string; model: string; hour: string; requests: number; input_tokens: number; output_tokens: number }>();
+      .all<
+        {
+          key_id: string;
+          model: string;
+          hour: string;
+          requests: number;
+          input_tokens: number;
+          output_tokens: number;
+          cache_read_tokens: number;
+          cache_creation_tokens: number;
+        }
+      >();
     return results.map((r) => ({
       keyId: r.key_id,
       model: r.model,
@@ -194,13 +305,28 @@ class D1UsageRepo implements UsageRepo {
       requests: r.requests,
       inputTokens: r.input_tokens,
       outputTokens: r.output_tokens,
+      cacheReadTokens: r.cache_read_tokens ?? 0,
+      cacheCreationTokens: r.cache_creation_tokens ?? 0,
     }));
   }
 
   async listAll(): Promise<UsageRecord[]> {
     const { results } = await this.db
-      .prepare("SELECT key_id, model, hour, requests, input_tokens, output_tokens FROM usage ORDER BY hour")
-      .all<{ key_id: string; model: string; hour: string; requests: number; input_tokens: number; output_tokens: number }>();
+      .prepare(
+        "SELECT key_id, model, hour, requests, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens FROM usage ORDER BY hour",
+      )
+      .all<
+        {
+          key_id: string;
+          model: string;
+          hour: string;
+          requests: number;
+          input_tokens: number;
+          output_tokens: number;
+          cache_read_tokens: number;
+          cache_creation_tokens: number;
+        }
+      >();
     return results.map((r) => ({
       keyId: r.key_id,
       model: r.model,
@@ -208,19 +334,32 @@ class D1UsageRepo implements UsageRepo {
       requests: r.requests,
       inputTokens: r.input_tokens,
       outputTokens: r.output_tokens,
+      cacheReadTokens: r.cache_read_tokens ?? 0,
+      cacheCreationTokens: r.cache_creation_tokens ?? 0,
     }));
   }
 
   async set(record: UsageRecord): Promise<void> {
     await this.db
       .prepare(
-        `INSERT INTO usage (key_id, model, hour, requests, input_tokens, output_tokens) VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO usage (key_id, model, hour, requests, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (key_id, model, hour) DO UPDATE SET
            requests = excluded.requests,
            input_tokens = excluded.input_tokens,
-           output_tokens = excluded.output_tokens`,
+           output_tokens = excluded.output_tokens,
+           cache_read_tokens = excluded.cache_read_tokens,
+           cache_creation_tokens = excluded.cache_creation_tokens`,
       )
-      .bind(record.keyId, record.model, record.hour, record.requests, record.inputTokens, record.outputTokens)
+      .bind(
+        record.keyId,
+        record.model,
+        record.hour,
+        record.requests,
+        record.inputTokens,
+        record.outputTokens,
+        record.cacheReadTokens ?? 0,
+        record.cacheCreationTokens ?? 0,
+      )
       .run();
   }
 
@@ -233,13 +372,16 @@ class D1CacheRepo implements CacheRepo {
   constructor(private db: D1Database) {}
 
   async get(key: string): Promise<string | null> {
-    const row = await this.db.prepare("SELECT value FROM config WHERE key = ?").bind(key).first<{ value: string }>();
+    const row = await this.db.prepare("SELECT value FROM config WHERE key = ?")
+      .bind(key).first<{ value: string }>();
     return row?.value ?? null;
   }
 
   async set(key: string, value: string): Promise<void> {
     await this.db
-      .prepare("INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
+      .prepare(
+        "INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+      )
       .bind(key, value)
       .run();
   }

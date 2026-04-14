@@ -25,13 +25,23 @@ const KEY_B: ApiKey = {
 const ACCOUNT_X: GitHubAccount = {
   token: "ghu_xxxx",
   accountType: "individual",
-  user: { id: 100, login: "alice", name: "Alice", avatar_url: "https://example.com/a.png" },
+  user: {
+    id: 100,
+    login: "alice",
+    name: "Alice",
+    avatar_url: "https://example.com/a.png",
+  },
 };
 
 const ACCOUNT_Y: GitHubAccount = {
   token: "ghu_yyyy",
   accountType: "enterprise",
-  user: { id: 200, login: "bob", name: null, avatar_url: "https://example.com/b.png" },
+  user: {
+    id: 200,
+    login: "bob",
+    name: null,
+    avatar_url: "https://example.com/b.png",
+  },
 };
 
 const USAGE_1: UsageRecord = {
@@ -41,6 +51,8 @@ const USAGE_1: UsageRecord = {
   requests: 5,
   inputTokens: 1000,
   outputTokens: 500,
+  cacheReadTokens: 120,
+  cacheCreationTokens: 80,
 };
 
 const USAGE_2: UsageRecord = {
@@ -50,6 +62,8 @@ const USAGE_2: UsageRecord = {
   requests: 3,
   inputTokens: 2000,
   outputTokens: 800,
+  cacheReadTokens: 200,
+  cacheCreationTokens: 50,
 };
 
 // ---- Helpers ----
@@ -177,6 +191,8 @@ Deno.test("export — usage records contain all fields", async () => {
   assertEquals(u.requests, USAGE_1.requests);
   assertEquals(u.inputTokens, USAGE_1.inputTokens);
   assertEquals(u.outputTokens, USAGE_1.outputTokens);
+  assertEquals(u.cacheReadTokens, USAGE_1.cacheReadTokens);
+  assertEquals(u.cacheCreationTokens, USAGE_1.cacheCreationTokens);
 });
 
 // ---- Tests: round-trip (import → export) ----
@@ -199,8 +215,10 @@ Deno.test("round-trip — replace import then export yields equivalent data", as
   const exported = await doExport(app);
 
   // Sort for stable comparison
-  const sortById = (a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id);
-  const sortByUserId = (a: GitHubAccount, b: GitHubAccount) => a.user.id - b.user.id;
+  const sortById = (a: { id: string }, b: { id: string }) =>
+    a.id.localeCompare(b.id);
+  const sortByUserId = (a: GitHubAccount, b: GitHubAccount) =>
+    a.user.id - b.user.id;
   const sortByUsage = (a: UsageRecord, b: UsageRecord) =>
     a.hour.localeCompare(b.hour) || a.keyId.localeCompare(b.keyId);
 
@@ -215,7 +233,10 @@ Deno.test("round-trip — replace import then export yields equivalent data", as
 
   assertEquals(exported.data.apiKeys, expected.apiKeys);
   assertEquals(exported.data.githubAccounts, expected.githubAccounts);
-  assertEquals(exported.data.activeGithubAccountId, expected.activeGithubAccountId);
+  assertEquals(
+    exported.data.activeGithubAccountId,
+    expected.activeGithubAccountId,
+  );
   assertEquals(exported.data.usage, expected.usage);
 });
 
@@ -295,8 +316,10 @@ Deno.test("round-trip — export from A, import into B, export from B matches A"
   const exportB = await doExport(appB);
 
   // Compare data (ignoring exportedAt timestamp)
-  const sortById = (a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id);
-  const sortByUserId = (a: GitHubAccount, b: GitHubAccount) => a.user.id - b.user.id;
+  const sortById = (a: { id: string }, b: { id: string }) =>
+    a.id.localeCompare(b.id);
+  const sortByUserId = (a: GitHubAccount, b: GitHubAccount) =>
+    a.user.id - b.user.id;
   const sortByUsage = (a: UsageRecord, b: UsageRecord) =>
     a.hour.localeCompare(b.hour) || a.keyId.localeCompare(b.keyId);
 
@@ -309,7 +332,10 @@ Deno.test("round-trip — export from A, import into B, export from B matches A"
 
   assertEquals(exportB.data.apiKeys, exportA.data.apiKeys);
   assertEquals(exportB.data.githubAccounts, exportA.data.githubAccounts);
-  assertEquals(exportB.data.activeGithubAccountId, exportA.data.activeGithubAccountId);
+  assertEquals(
+    exportB.data.activeGithubAccountId,
+    exportA.data.activeGithubAccountId,
+  );
   assertEquals(exportB.data.usage, exportA.data.usage);
 });
 
@@ -388,7 +414,12 @@ Deno.test("import merge — usage set overwrites matching records", async () => 
   const { app, repo } = setup();
 
   // Existing usage
-  await repo.usage.set({ ...USAGE_1, requests: 10, inputTokens: 9999, outputTokens: 8888 });
+  await repo.usage.set({
+    ...USAGE_1,
+    requests: 10,
+    inputTokens: 9999,
+    outputTokens: 8888,
+  });
 
   // Merge with USAGE_1 (different values)
   await doImport(app, "merge", { usage: [USAGE_1] });

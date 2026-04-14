@@ -43,7 +43,10 @@ class DenoKvApiKeyRepo implements ApiKeyRepo {
 
   async save(key: ApiKey): Promise<void> {
     const existing = await this.kv.get<ApiKey>(["api_keys", key.id]);
-    const ops = this.kv.atomic().set(["api_keys", key.id], key).set(["api_keys_by_key", key.key], key.id);
+    const ops = this.kv.atomic().set(["api_keys", key.id], key).set([
+      "api_keys_by_key",
+      key.key,
+    ], key.id);
     if (existing.value && existing.value.key !== key.key) {
       ops.delete(["api_keys_by_key", existing.value.key]);
     }
@@ -127,7 +130,9 @@ class DenoKvGitHubRepo implements GitHubRepo {
 
 // KV entries created before accountType was added may lack the field
 function withDefaultAccountType(account: GitHubAccount): GitHubAccount {
-  return account.accountType ? account : { ...account, accountType: "individual" };
+  return account.accountType
+    ? account
+    : { ...account, accountType: "individual" };
 }
 
 class DenoKvUsageRepo implements UsageRepo {
@@ -140,20 +145,29 @@ class DenoKvUsageRepo implements UsageRepo {
     requests: number,
     inputTokens: number,
     outputTokens: number,
+    cacheReadTokens = 0,
+    cacheCreationTokens = 0,
   ): Promise<void> {
-    await this.kv.atomic()
+    let op = this.kv.atomic()
       .sum(["usage", keyId, model, hour, "r"], BigInt(requests))
       .sum(["usage", keyId, model, hour, "i"], BigInt(inputTokens))
-      .sum(["usage", keyId, model, hour, "o"], BigInt(outputTokens))
-      .commit();
+      .sum(["usage", keyId, model, hour, "o"], BigInt(outputTokens));
+    if (cacheReadTokens > 0) {
+      op = op.sum(["usage", keyId, model, hour, "cr"], BigInt(cacheReadTokens));
+    }
+    if (cacheCreationTokens > 0) {
+      op = op.sum(
+        ["usage", keyId, model, hour, "cc"],
+        BigInt(cacheCreationTokens),
+      );
+    }
+    await op.commit();
   }
 
   async query(
     opts: { keyId?: string; start: string; end: string },
   ): Promise<UsageRecord[]> {
-    const prefix: Deno.KvKey = opts.keyId
-      ? ["usage", opts.keyId]
-      : ["usage"];
+    const prefix: Deno.KvKey = opts.keyId ? ["usage", opts.keyId] : ["usage"];
     const map = new Map<string, UsageRecord>();
 
     for await (const entry of this.kv.list<Deno.KvU64>({ prefix })) {
@@ -173,6 +187,8 @@ class DenoKvUsageRepo implements UsageRepo {
           requests: 0,
           inputTokens: 0,
           outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0,
         };
         map.set(mapKey, rec);
       }
@@ -181,6 +197,8 @@ class DenoKvUsageRepo implements UsageRepo {
       if (metric === "r") rec.requests = val;
       else if (metric === "i") rec.inputTokens = val;
       else if (metric === "o") rec.outputTokens = val;
+      else if (metric === "cr") rec.cacheReadTokens = val;
+      else if (metric === "cc") rec.cacheCreationTokens = val;
     }
 
     return [...map.values()].sort((a, b) => a.hour.localeCompare(b.hour));
@@ -197,7 +215,16 @@ class DenoKvUsageRepo implements UsageRepo {
       const mapKey = `${keyId}\0${model}\0${hour}`;
       let rec = map.get(mapKey);
       if (!rec) {
-        rec = { keyId, model, hour, requests: 0, inputTokens: 0, outputTokens: 0 };
+        rec = {
+          keyId,
+          model,
+          hour,
+          requests: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0,
+        };
         map.set(mapKey, rec);
       }
 
@@ -205,14 +232,33 @@ class DenoKvUsageRepo implements UsageRepo {
       if (metric === "r") rec.requests = val;
       else if (metric === "i") rec.inputTokens = val;
       else if (metric === "o") rec.outputTokens = val;
+      else if (metric === "cr") rec.cacheReadTokens = val;
+      else if (metric === "cc") rec.cacheCreationTokens = val;
     }
     return [...map.values()].sort((a, b) => a.hour.localeCompare(b.hour));
   }
 
   async set(record: UsageRecord): Promise<void> {
-    await this.kv.set(["usage", record.keyId, record.model, record.hour, "r"], new Deno.KvU64(BigInt(record.requests)));
-    await this.kv.set(["usage", record.keyId, record.model, record.hour, "i"], new Deno.KvU64(BigInt(record.inputTokens)));
-    await this.kv.set(["usage", record.keyId, record.model, record.hour, "o"], new Deno.KvU64(BigInt(record.outputTokens)));
+    await this.kv.set(
+      ["usage", record.keyId, record.model, record.hour, "r"],
+      new Deno.KvU64(BigInt(record.requests)),
+    );
+    await this.kv.set(
+      ["usage", record.keyId, record.model, record.hour, "i"],
+      new Deno.KvU64(BigInt(record.inputTokens)),
+    );
+    await this.kv.set(
+      ["usage", record.keyId, record.model, record.hour, "o"],
+      new Deno.KvU64(BigInt(record.outputTokens)),
+    );
+    await this.kv.set(
+      ["usage", record.keyId, record.model, record.hour, "cr"],
+      new Deno.KvU64(BigInt(record.cacheReadTokens ?? 0)),
+    );
+    await this.kv.set(
+      ["usage", record.keyId, record.model, record.hour, "cc"],
+      new Deno.KvU64(BigInt(record.cacheCreationTokens ?? 0)),
+    );
   }
 
   async deleteAll(): Promise<void> {

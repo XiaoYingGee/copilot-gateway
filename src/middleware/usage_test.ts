@@ -19,7 +19,11 @@ Deno.test("usage middleware records non-streaming usage and updates lastUsedAt",
       return jsonResponse(["1.110.1"]);
     }
     if (url.pathname === "/copilot_internal/v2/token") {
-      return jsonResponse({ token: "copilot-access-token", expires_at: 4102444800, refresh_in: 3600 });
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
     }
     if (url.pathname === "/models") {
       return jsonResponse(copilotModels([
@@ -35,7 +39,12 @@ Deno.test("usage middleware records non-streaming usage and updates lastUsedAt",
         content: [{ type: "text", text: "ok" }],
         stop_reason: "end_turn",
         stop_sequence: null,
-        usage: { input_tokens: 7, output_tokens: 9 },
+        usage: {
+          input_tokens: 7,
+          output_tokens: 9,
+          cache_read_input_tokens: 3,
+          cache_creation_input_tokens: 5,
+        },
       });
     }
 
@@ -65,8 +74,10 @@ Deno.test("usage middleware records non-streaming usage and updates lastUsedAt",
   assertEquals(usage[0].keyId, apiKey.id);
   assertEquals(usage[0].model, "claude-native");
   assertEquals(usage[0].requests, 1);
-  assertEquals(usage[0].inputTokens, 7);
+  assertEquals(usage[0].inputTokens, 15);
   assertEquals(usage[0].outputTokens, 9);
+  assertEquals(usage[0].cacheReadTokens, 3);
+  assertEquals(usage[0].cacheCreationTokens, 5);
 
   const updatedKey = await repo.apiKeys.getById(apiKey.id);
   assertExists(updatedKey?.lastUsedAt);
@@ -82,7 +93,11 @@ Deno.test("usage middleware records streaming usage from Responses SSE", async (
       return jsonResponse(["1.110.1"]);
     }
     if (url.pathname === "/copilot_internal/v2/token") {
-      return jsonResponse({ token: "copilot-access-token", expires_at: 4102444800, refresh_in: 3600 });
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
     }
     if (url.pathname === "/models") {
       return jsonResponse(copilotModels([
@@ -102,7 +117,12 @@ Deno.test("usage middleware records streaming usage from Responses SSE", async (
               status: "completed",
               output: [],
               output_text: "",
-              usage: { input_tokens: 11, output_tokens: 13, total_tokens: 24 },
+              usage: {
+                input_tokens: 11,
+                output_tokens: 13,
+                total_tokens: 24,
+                input_tokens_details: { cached_tokens: 4 },
+              },
             },
           },
         },
@@ -145,6 +165,8 @@ Deno.test("usage middleware records streaming usage from Responses SSE", async (
   assertEquals(usage[0].model, "gpt-direct-responses");
   assertEquals(usage[0].inputTokens, 11);
   assertEquals(usage[0].outputTokens, 13);
+  assertEquals(usage[0].cacheReadTokens, 4);
+  assertEquals(usage[0].cacheCreationTokens, 0);
 
   const updatedKey = await repo.apiKeys.getById(apiKey.id);
   assertExists(updatedKey?.lastUsedAt);

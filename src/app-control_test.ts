@@ -65,6 +65,8 @@ Deno.test("/api/token-usage is visible to any authenticated user and includes al
     requests: 2,
     inputTokens: 10,
     outputTokens: 5,
+    cacheReadTokens: 4,
+    cacheCreationTokens: 1,
   });
   await repo.usage.set({
     keyId: "key_other",
@@ -73,17 +75,32 @@ Deno.test("/api/token-usage is visible to any authenticated user and includes al
     requests: 1,
     inputTokens: 20,
     outputTokens: 8,
+    cacheReadTokens: 6,
+    cacheCreationTokens: 2,
   });
 
-  const response = await requestApp("/api/token-usage?start=2026-03-15T00&end=2026-03-16T00", {
-    headers: { "x-api-key": apiKey.key },
-  });
+  const response = await requestApp(
+    "/api/token-usage?start=2026-03-15T00&end=2026-03-16T00",
+    {
+      headers: { "x-api-key": apiKey.key },
+    },
+  );
 
   assertEquals(response.status, 200);
   const body = await response.json();
   assertEquals(body.length, 2);
   assertEquals(body[0].keyName, "Primary key");
   assertEquals(body[1].keyName, "Other key");
-  assertExists(body.find((record: { keyId: string }) => record.keyId === apiKey.id));
-  assertExists(body.find((record: { keyId: string }) => record.keyId === "key_other"));
+  const ownRecord = body.find((record: { keyId: string }) =>
+    record.keyId === apiKey.id
+  );
+  const otherRecord = body.find((record: { keyId: string }) =>
+    record.keyId === "key_other"
+  );
+  assertExists(ownRecord);
+  assertExists(otherRecord);
+  assertEquals(ownRecord.cacheReadTokens, 4);
+  assertEquals(ownRecord.cacheCreationTokens, 1);
+  assertEquals(otherRecord.cacheReadTokens, 6);
+  assertEquals(otherRecord.cacheCreationTokens, 2);
 });

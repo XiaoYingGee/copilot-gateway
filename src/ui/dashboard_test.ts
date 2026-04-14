@@ -7,5 +7,7 @@ Deno.test("DashboardPage renders split dashboard shell", () => {
   assertStringIncludes(html, 'x-data="dashboardApp()"');
   assertStringIncludes(html, "Copilot Gateway");
   assertStringIncludes(html, "API Keys");
+  assertStringIncludes(html, "Total Tokens");
+  assertStringIncludes(html, "Cache Hit Rate");
   assertStringIncludes(html, "function dashboardApp()");
 });

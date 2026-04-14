@@ -1,7 +1,24 @@
 import { html } from "hono/html";
 
 function spinner(cls: string) {
-  return html`<svg class="animate-spin ${cls}" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" fill="none" opacity="0.25"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity="0.75"/></svg>`;
+  return html`
+    <svg class="animate-spin ${cls}" viewBox="0 0 24 24">
+      <circle
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        stroke-width="3"
+        fill="none"
+        opacity="0.25"
+      />
+      <path
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+        opacity="0.75"
+      />
+    </svg>
+  `;
 }
 
 function codeBlock(
@@ -51,7 +68,9 @@ export function renderDashboardHeader() {
     <header
       class="border-b border-white/5 bg-surface-900/80 backdrop-blur-md sticky top-0 z-50"
     >
-      <div class="max-w-6xl mx-auto px-6 py-3 flex flex-wrap items-center gap-x-5 gap-y-3">
+      <div
+        class="max-w-6xl mx-auto px-6 py-3 flex flex-wrap items-center gap-x-5 gap-y-3"
+      >
         <div class="flex items-center gap-3">
           <div
             class="w-8 h-8 rounded-lg bg-surface-700 glow-border flex items-center justify-center"
@@ -139,8 +158,7 @@ export function renderUpstreamTab() {
             >
               <span x-show="!deviceFlow.loading">Connect GitHub</span>
               <span x-show="deviceFlow.loading" class="flex items-center gap-2">
-                ${spinner("h-4 w-4")}
-                Connecting…
+                ${spinner("h-4 w-4")} Connecting…
               </span>
             </button>
           </div>
@@ -186,8 +204,7 @@ export function renderUpstreamTab() {
               <div
                 class="flex items-center justify-center gap-2 text-sm text-gray-500"
               >
-                ${spinner("h-4 w-4")}
-                Waiting for authorization...
+                ${spinner("h-4 w-4")} Waiting for authorization...
               </div>
 
               <button @click="cancelDeviceFlow()" class="btn-ghost w-full mt-4">
@@ -354,8 +371,7 @@ export function renderUpstreamTab() {
                     x-show="deviceFlow.loading"
                     class="flex items-center gap-1.5"
                   >
-                    ${spinner("h-3 w-3")}
-                    Adding…
+                    ${spinner("h-3 w-3")} Adding…
                   </span>
                 </button>
               </template>
@@ -504,8 +520,7 @@ export function renderKeysTab() {
             >
               <span x-show="!keyCreating">+ Create</span>
               <span x-show="keyCreating" class="flex items-center gap-1.5">
-                ${spinner("h-3 w-3")}
-                Creating…
+                ${spinner("h-3 w-3")} Creating…
               </span>
             </button>
           </div>
@@ -836,13 +851,35 @@ export function renderUsageTab() {
               class="p-1 rounded transition-colors text-gray-600 hover:text-gray-400"
               title="Redact key names"
             >
-              <svg x-show="!redactKeys" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg
+                x-show="!redactKeys"
+                class="w-3.5 h-3.5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                 <circle cx="12" cy="12" r="3" />
               </svg>
-              <svg x-show="redactKeys" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-                <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+              <svg
+                x-show="redactKeys"
+                class="w-3.5 h-3.5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path
+                  d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"
+                />
+                <path
+                  d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"
+                />
                 <line x1="1" y1="1" x2="23" y2="23" />
               </svg>
             </button>
@@ -904,7 +941,7 @@ export function renderUsageTab() {
           </div>
         </div>
 
-        <div class="grid grid-cols-3 gap-4 mt-6 pt-5 border-t border-white/5">
+        <div class="grid grid-cols-6 gap-4 mt-6 pt-5 border-t border-white/5">
           <div class="text-center">
             <p class="text-xs text-gray-500 mb-1">Requests</p>
             <template x-if="tokenLoading && !chartsReady">
@@ -915,6 +952,20 @@ export function renderUsageTab() {
               <p
                 class="text-lg font-bold font-mono text-white"
                 x-text="tokenSummary.requests.toLocaleString()"
+              >
+              </p>
+            </template>
+          </div>
+          <div class="text-center">
+            <p class="text-xs text-gray-500 mb-1">Total Tokens</p>
+            <template x-if="tokenLoading && !chartsReady">
+              <div class="h-7 w-20 mx-auto bg-surface-600 rounded animate-pulse">
+              </div>
+            </template>
+            <template x-if="!tokenLoading || chartsReady">
+              <p
+                class="text-lg font-bold font-mono text-white"
+                x-text="tokenSummary.total.toLocaleString()"
               >
               </p>
             </template>
@@ -943,6 +994,34 @@ export function renderUsageTab() {
               <p
                 class="text-lg font-bold font-mono text-white"
                 x-text="tokenSummary.output.toLocaleString()"
+              >
+              </p>
+            </template>
+          </div>
+          <div class="text-center">
+            <p class="text-xs text-gray-500 mb-1">Cache Write</p>
+            <template x-if="tokenLoading && !chartsReady">
+              <div class="h-7 w-20 mx-auto bg-surface-600 rounded animate-pulse">
+              </div>
+            </template>
+            <template x-if="!tokenLoading || chartsReady">
+              <p
+                class="text-lg font-bold font-mono text-white"
+                x-text="tokenSummary.cacheCreation.toLocaleString()"
+              >
+              </p>
+            </template>
+          </div>
+          <div class="text-center">
+            <p class="text-xs text-gray-500 mb-1">Cache Hit Rate</p>
+            <template x-if="tokenLoading && !chartsReady">
+              <div class="h-7 w-20 mx-auto bg-surface-600 rounded animate-pulse">
+              </div>
+            </template>
+            <template x-if="!tokenLoading || chartsReady">
+              <p
+                class="text-lg font-bold font-mono text-white"
+                x-text="formatHitRate(tokenSummary.cacheRead, tokenSummary.cacheCreation)"
               >
               </p>
             </template>
@@ -987,8 +1066,7 @@ export function renderSettingsTab() {
               Export JSON
             </span>
             <span x-show="exportLoading" class="flex items-center gap-2">
-              ${spinner("h-4 w-4")}
-              Exporting...
+              ${spinner("h-4 w-4")} Exporting...
             </span>
           </button>
         </div>
@@ -1148,8 +1226,7 @@ export function renderSettingsTab() {
                   ></span>
                 </span>
                 <span x-show="importLoading" class="flex items-center gap-2">
-                  ${spinner("h-4 w-4")}
-                  Importing...
+                  ${spinner("h-4 w-4")} Importing...
                 </span>
               </button>
             </div>

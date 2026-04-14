@@ -1,16 +1,12 @@
+import type { ExecutionContext } from "hono";
 import { initEnv } from "./src/lib/env.ts";
 import { initRepo } from "./src/repo/mod.ts";
-import { D1Repo, type D1Database } from "./src/repo/d1.ts";
+import { type D1Database, D1Repo } from "./src/repo/d1.ts";
 import { app } from "./src/app.ts";
 
 interface Env {
   DB: D1Database;
   [key: string]: unknown;
-}
-
-interface ExecutionContext {
-  waitUntil(promise: Promise<unknown>): void;
-  passThroughOnException(): void;
 }
 
 export default {
