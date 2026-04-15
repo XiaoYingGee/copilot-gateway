@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type { AnthropicMessagesPayload } from "../lib/anthropic-types.ts";
+import { normalizeModelName } from "./proxy-utils.ts";
 
 type TokenCountFn = (text: string) => number;
 
@@ -126,6 +127,7 @@ async function countPayloadTokens(
 export const countTokens = async (c: Context) => {
   try {
     const payload = await c.req.json<AnthropicMessagesPayload>();
+    if (payload.model) payload.model = normalizeModelName(payload.model);
     return c.json({ input_tokens: await countPayloadTokens(payload) });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

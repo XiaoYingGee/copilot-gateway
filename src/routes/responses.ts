@@ -24,6 +24,7 @@ import {
   copilotApiErrorResponse,
   getErrorMessage,
   noUpstreamBodyApiErrorResponse,
+  normalizeModelName,
 } from "./proxy-utils.ts";
 
 function hasVision(payload: ResponsesPayload): boolean {
@@ -118,6 +119,7 @@ function fixStreamIds(
 export const responses = async (c: Context) => {
   try {
     const payload = await c.req.json<ResponsesPayload>();
+    if (payload.model) payload.model = normalizeModelName(payload.model);
     c.set("model", payload.model ?? "unknown");
     const { token: githubToken, accountType } = await getGithubCredentials();
     const model = payload.model;

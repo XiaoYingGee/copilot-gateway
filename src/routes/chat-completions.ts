@@ -42,6 +42,7 @@ import {
   getErrorMessage,
   noUpstreamBodyApiErrorResponse,
   proxyJsonResponse,
+  normalizeModelName,
 } from "./proxy-utils.ts";
 
 const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
@@ -145,6 +146,7 @@ function fixStream(
 export const chatCompletions = async (c: Context) => {
   try {
     const body = await c.req.json<ChatCompletionsPayload>();
+    if (body.model) body.model = normalizeModelName(body.model);
     c.set("model", body.model ?? "unknown");
     const { token: githubToken, accountType } = await getGithubCredentials();
 

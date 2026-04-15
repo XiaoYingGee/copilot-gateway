@@ -61,3 +61,20 @@ export function proxyJsonResponse(resp: Response): Response {
     },
   });
 }
+
+/**
+ * Normalize model name: convert version-number dashes to dots.
+ * e.g. "claude-opus-4-6" → "claude-opus-4.6"
+ *      "claude-sonnet-4-6-1m" → "claude-sonnet-4.6-1m"
+ *      "claude-opus-4-6-1m" → "claude-opus-4.6-1m"
+ * Does NOT touch non-version dashes (e.g. "claude-sonnet" stays).
+ */
+export function normalizeModelName(model: string): string {
+  // Match trailing version like -4-6, -4-6-1m, -4-5 etc.
+  // Pattern: a digit, dash, digit(s) that form a minor version
+  // We specifically target: -(major)-(minor) where major/minor are single digits
+  return model.replace(
+    /(\d)-(\d+)(?=(-1m)?$)/,
+    "$1.$2",
+  );
+}

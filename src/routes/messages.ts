@@ -45,6 +45,7 @@ import {
   anthropicCopilotApiErrorResponse,
   getErrorMessage,
   noUpstreamBodyAnthropicErrorResponse,
+  normalizeModelName,
 } from "./proxy-utils.ts";
 
 const ALLOWED_ANTHROPIC_BETAS = new Set([
@@ -152,6 +153,7 @@ function contextWindowErrorResponse(c: Context) {
 export const messages = async (c: Context) => {
   try {
     const payload = await c.req.json<AnthropicMessagesPayload>();
+    if (payload.model) payload.model = normalizeModelName(payload.model);
     c.set("model", payload.model ?? "unknown");
 
     const { token: githubToken, accountType } = await getGithubCredentials();
