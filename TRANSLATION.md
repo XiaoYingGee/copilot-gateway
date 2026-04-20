@@ -198,8 +198,8 @@ Responses SSE events are translated directly to Chat Completions chunks:
 - Native Anthropic-compatible streams must not expose `[DONE]`.
 - `strict` support on Copilot upstream Claude models is inconsistent; the
   gateway intentionally does not mask this with implicit fallback.
-- `count_tokens` uses tokenizer implementations when available and falls back to
-  estimation on tokenizer load or runtime failure.
+- `count_tokens` proxies directly to the Copilot upstream
+  `/v1/messages/count_tokens` endpoint.
 
 ## Translation-Induced Limitations
 

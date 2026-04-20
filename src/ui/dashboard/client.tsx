@@ -103,6 +103,7 @@ export function dashboardAssets() {
     return {
       authKey: '',
       isAdmin,
+      loginKeyId: localStorage.getItem('login_key_id') || '',
       tab: initTab,
       meLoaded: false,
       githubAccounts: [],
@@ -175,9 +176,15 @@ export function dashboardAssets() {
       },
 
       get filteredChatModels() {
-        if (!this.modelsSearch.trim()) return this.allModels;
-        const q = this.modelsSearch.toLowerCase();
-        return this.allModels.filter(m => m.id.toLowerCase().includes(q));
+        let models = this.allModels.filter(m => m.capabilities?.type !== 'embeddings');
+        if (this.modelsSearch.trim()) {
+          const q = this.modelsSearch.toLowerCase();
+          models = models.filter(m => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q));
+        }
+        const enabled = models.filter(m => m.model_picker_enabled);
+        const legacy = models.filter(m => !m.model_picker_enabled);
+        if (enabled.length && legacy.length) return [...enabled, { _divider: true }, ...legacy];
+        return [...enabled, ...legacy];
       },
 
       get activeKey() {
@@ -225,7 +232,9 @@ export function dashboardAssets() {
           //   1. getContextWindowForModel() returns 1_000_000 (src/utils/context.ts)
           //   2. "context-1m-2025-08-07" beta header is added (src/utils/betas.ts)
           //      (the gateway filters this out — Copilot API doesn't support it)
+          const force1m = ['claude-opus-4-7'];
           const addCtx = (id) => {
+            if (force1m.includes(id)) return id + '[1m]';
             const p = this.claudeContextMap[id];
             return p >= 1000000 ? id + '[1m]' : id;
           };
@@ -325,11 +334,15 @@ export function dashboardAssets() {
               return;
             }
             const { data: rawData } = await resp.json();
-            const data = rawData.map((m) => ({ ...m, id: substituteModelName(m.id) }));
+            const seen = new Set();
+            const data = rawData
+              .map((m) => ({ ...m, id: substituteModelName(m.id) }))
+              .filter((m) => !seen.has(m.id) && seen.add(m.id));
 
-            this.allModels = data.sort((a, b) => a.id.localeCompare(b.id));
-            if (!this.chatModelId && this.allModels.length > 0) {
-              this.chatModelId = this.allModels[0].id;
+            this.allModels = data;
+            if (!this.chatModelId) {
+              const first = this.filteredChatModels.find(m => !m._divider);
+              if (first) this.chatModelId = first.id;
             }
 
             const claudeFiltered = data
@@ -664,7 +677,9 @@ export function dashboardAssets() {
               }
               const start = rangeStart.toISOString().slice(0, 13);
               const end = new Date(now.getTime() + 3600000).toISOString().slice(0, 13);
-              const resp = await fetch('/api/token-usage?start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end), { headers: this.authHeaders() });
+              let tokenUrl = '/api/token-usage?start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end);
+              if (!this.isAdmin && this.loginKeyId) tokenUrl += '&key_id=' + encodeURIComponent(this.loginKeyId);
+              const resp = await fetch(tokenUrl, { headers: this.authHeaders() });
               if (resp.status === 401) {
                 this.logout();
                 return;

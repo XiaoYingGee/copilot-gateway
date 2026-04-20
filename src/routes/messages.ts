@@ -43,7 +43,6 @@ import {
 } from "../lib/sse-reassemble.ts";
 import {
   anthropicApiErrorResponse,
-  anthropicCopilotApiErrorResponse,
   getErrorMessage,
   noUpstreamBodyAnthropicErrorResponse,
 } from "./proxy-utils.ts";
@@ -310,13 +309,11 @@ async function forwardMessages(
 
   if (!resp.ok) {
     const text = await resp.text();
-    return isContextWindowError(text)
-      ? contextWindowErrorResponse(c)
-      : anthropicCopilotApiErrorResponse(
-        c,
-        resp.status as 400 | 401 | 403 | 404 | 429 | 500 | 502 | 503,
-        text,
-      );
+    if (isContextWindowError(text)) return contextWindowErrorResponse(c);
+    return new Response(text, {
+      status: resp.status,
+      headers: { "content-type": resp.headers.get("content-type") ?? "application/json" },
+    });
   }
 
   if (!wantsStream) {
@@ -369,13 +366,11 @@ async function handleTranslated(
 
   if (!resp.ok) {
     const text = await resp.text();
-    return isContextWindowError(text)
-      ? contextWindowErrorResponse(c)
-      : anthropicCopilotApiErrorResponse(
-        c,
-        resp.status as 400 | 401 | 403 | 404 | 429 | 500 | 502 | 503,
-        text,
-      );
+    if (isContextWindowError(text)) return contextWindowErrorResponse(c);
+    return new Response(text, {
+      status: resp.status,
+      headers: { "content-type": resp.headers.get("content-type") ?? "application/json" },
+    });
   }
 
   if (!wantsStream) {
@@ -444,13 +439,11 @@ async function handleWithResponses(
 
   if (!resp.ok) {
     const text = await resp.text();
-    return isContextWindowError(text)
-      ? contextWindowErrorResponse(c)
-      : anthropicCopilotApiErrorResponse(
-        c,
-        resp.status as 400 | 401 | 403 | 404 | 429 | 500 | 502 | 503,
-        text,
-      );
+    if (isContextWindowError(text)) return contextWindowErrorResponse(c);
+    return new Response(text, {
+      status: resp.status,
+      headers: { "content-type": resp.headers.get("content-type") ?? "application/json" },
+    });
   }
 
   if (!wantsStream) {

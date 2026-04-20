@@ -1260,15 +1260,22 @@ export function renderModelsTab() {
               style="padding:8px 12px; font-size:12px; border-radius:8px;" />
           </div>
           <div class="flex-1 overflow-y-auto">
-            <template x-for="m in filteredChatModels" :key="m.id">
-              <button
-                @click="selectChatModel(m.id)"
-                class="w-full text-left px-4 py-2.5 border-b border-white/[0.03] transition-colors text-xs font-mono truncate"
-                :class="chatModelId === m.id
-                  ? 'bg-accent-cyanGlow text-accent-cyan border-l-2 border-l-accent-cyan'
-                  : 'text-gray-400 hover:bg-white/[0.03] hover:text-gray-200 border-l-2 border-l-transparent'"
-                x-text="m.id"
-              ></button>
+            <template x-for="(m, i) in filteredChatModels" :key="m.id || ('div-'+i)">
+              <div>
+                <div x-show="m._divider" class="border-t border-white/[0.1] mx-3 my-1"></div>
+                <button
+                  x-show="!m._divider"
+                  @click="selectChatModel(m.id)"
+                  class="w-full text-left px-4 py-2.5 transition-colors border-l-2"
+                  :class="[chatModelId === m.id
+                    ? 'bg-accent-cyanGlow text-accent-cyan border-l-accent-cyan'
+                    : 'text-gray-400 hover:bg-white/[0.03] hover:text-gray-200 border-l-transparent',
+                    (() => { const next = filteredChatModels[i+1]; return next && !next._divider ? 'border-b border-white/[0.03]' : ''; })()]"
+                >
+                  <div class="text-[13px] truncate" :class="chatModelId === m.id ? 'text-white' : 'text-gray-300'" x-text="m.name"></div>
+                  <div class="text-[11px] font-mono truncate mt-0.5 opacity-60" x-text="m.id"></div>
+                </button>
+              </div>
             </template>
             <div x-show="filteredChatModels.length === 0" class="p-4 text-center text-gray-600 text-xs">
               No models found
@@ -1282,11 +1289,11 @@ export function renderModelsTab() {
           <div x-show="chatModelInfo" class="shrink-0 p-4 border-b border-white/[0.06]">
             <div class="flex items-start justify-between gap-4">
               <div>
-                <h3 class="text-sm font-semibold text-white font-mono" x-text="chatModelInfo?.id"></h3>
+                <h3 class="text-sm font-semibold text-white" x-text="chatModelInfo?.name"></h3>
                 <p class="text-[11px] text-gray-500 mt-0.5">
-                  <span x-text="chatModelInfo?.capabilities?.family" class="text-accent-cyan"></span>
+                  <span class="font-mono" x-text="chatModelInfo?.id"></span>
                   <span class="mx-1 text-gray-700">/</span>
-                  <span x-text="chatModelInfo?.capabilities?.type"></span>
+                  <span x-text="chatModelInfo?.capabilities?.family" class="text-accent-cyan"></span>
                 </p>
               </div>
               <button @click="clearChat()" class="btn-ghost text-[11px] flex items-center gap-1" :disabled="chatMessages.length === 0">
