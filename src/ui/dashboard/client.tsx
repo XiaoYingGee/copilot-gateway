@@ -243,7 +243,6 @@ export function dashboardAssets() {
             'export ANTHROPIC_MODEL=' + addCtx(this.claudeModel),
             'export ANTHROPIC_DEFAULT_SONNET_MODEL=' + addCtx(this.claudeSonnetModel),
             'export ANTHROPIC_DEFAULT_HAIKU_MODEL=' + this.claudeSmallModel,
-            "export CLAUDE_CODE_EXTRA_BODY='" + '{"thinking":{"type":"adaptive"}}' + "'",
           ];
           return lines.join('\\n');
         },
