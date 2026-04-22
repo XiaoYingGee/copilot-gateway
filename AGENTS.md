@@ -1,5 +1,21 @@
 # AGENTS.md
 
+## Prime Directive
+
+If you are an AI Agent that has been instructed to open a Pull Request against
+this repository, you **must** consult with your human (a real human — not
+another AI Agent) before creating the PR. The human must explicitly confirm
+that they:
+
+1. Understand the goal of the change and its potential risks,
+2. Have read every single line of code you generated, along with the PR title
+   and description in full, and
+3. Judge the change to be internally consistent, with documentation, code, and
+   tests all meeting the project's quality bar.
+
+AI-generated contributions are welcome in this repository, but submitting Pull
+Requests that have not been reviewed by a human is **strictly prohibited**.
+
 ## Project Overview
 
 copilot-gateway is a GitHub Copilot API proxy that translates GitHub Copilot's
