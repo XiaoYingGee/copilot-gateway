@@ -104,17 +104,6 @@ function stripReservedKeywords(payload: AnthropicMessagesPayload): void {
       block.text = block.text.replaceAll(RESERVED_KEYWORD, "");
     }
   }
-  for (const msg of payload.messages) {
-    if (typeof msg.content === "string") {
-      msg.content = msg.content.replaceAll(RESERVED_KEYWORD, "");
-    } else if (Array.isArray(msg.content)) {
-      for (const block of msg.content) {
-        if ("text" in block && typeof block.text === "string") {
-          block.text = block.text.replaceAll(RESERVED_KEYWORD, "");
-        }
-      }
-    }
-  }
 }
 
 /** Strip unsupported `scope` from cache_control — Copilot API rejects it */
