@@ -65,9 +65,7 @@ export const serveMessages = async (
     if (plan.target === "responses") {
       const result = await emitToResponses({
         sourceApi: "messages",
-        payload: buildResponsesTargetRequest(payload, {
-          reasoningEffort: plan.reasoningEffort,
-        }),
+        payload: buildResponsesTargetRequest(payload),
         githubToken,
         accountType,
         fetchOptions: plan.fetchOptions,

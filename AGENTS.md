@@ -53,8 +53,6 @@ Global caches:
 - `src/lib/copilot.ts`: Copilot token cache, L1 in-process + L2 repo-backed.
 - `src/lib/models-cache.ts`: model capability cache, L1 in-process + L2
   repo-backed.
-- `src/lib/probe.ts` + `src/lib/copilot-probes.ts`: cached capability probes for
-  request-shape behavior not reliably exposed by `/models`.
 
 ### Control Plane vs Data Plane
 
@@ -278,9 +276,9 @@ the result. Do not claim success from inspection alone.
 - Do not create commits unless the human explicitly asks for a commit.
 - If the human wants deploy-before-commit validation, deploy first and leave
   changes uncommitted until they approve the commit.
-- Follow the repository's existing commit history style. Use Conventional
-  Commit subjects in the form `type(scope): subject` when there is a natural
-  scope, or `type: subject` when there is not.
+- Follow the repository's existing commit history style. Use Conventional Commit
+  subjects in the form `type(scope): subject` when there is a natural scope, or
+  `type: subject` when there is not.
 - Prefer scopes that match real subsystems already used in history, such as
   `data-plane`, `proxy`, `ui`, or `count-tokens`.
 - Keep commit subjects concise and imperative. Do not invent a separate

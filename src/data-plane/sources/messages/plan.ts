@@ -1,7 +1,6 @@
 import type { AnthropicMessagesPayload } from "../../../lib/anthropic-types.ts";
 import { getAnthropicRequestedReasoningEffort } from "../../../lib/reasoning.ts";
 import { getModelCapabilities } from "../../shared/models/get-model-capabilities.ts";
-import { probeResponsesReasoningEffortForMessages } from "../../shared/probes/probe-responses-reasoning-effort.ts";
 import type { MessagesPlan } from "../../shared/types/plan.ts";
 
 const hasVision = (payload: AnthropicMessagesPayload): boolean =>
@@ -57,11 +56,6 @@ export const planMessagesRequest = async (
       target: "responses",
       wantsStream,
       fetchOptions,
-      reasoningEffort: await probeResponsesReasoningEffort(
-        payload,
-        githubToken,
-        accountType,
-      ),
     };
   }
 
@@ -71,11 +65,6 @@ export const planMessagesRequest = async (
       target: "responses",
       wantsStream,
       fetchOptions,
-      reasoningEffort: await probeResponsesReasoningEffort(
-        payload,
-        githubToken,
-        accountType,
-      ),
     };
   }
 
@@ -85,21 +74,4 @@ export const planMessagesRequest = async (
     wantsStream,
     fetchOptions,
   };
-};
-
-const probeResponsesReasoningEffort = async (
-  payload: AnthropicMessagesPayload,
-  githubToken: string,
-  accountType: string,
-) => {
-  try {
-    return await probeResponsesReasoningEffortForMessages(
-      payload,
-      githubToken,
-      accountType,
-    );
-  } catch (error) {
-    console.warn("Failed to probe Responses reasoning efforts:", error);
-    return null;
-  }
 };

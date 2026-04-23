@@ -10,9 +10,9 @@
 
 Route selection is driven by `GET /models` capability data, specifically each
 model's `supported_endpoints`. The implementation does not hardcode model
-families. When endpoint metadata is insufficient, the gateway uses cached
-runtime probes to discover request-shape capabilities such as supported
-`reasoning.effort` values.
+families. The gateway does not runtime-probe request-shape support; once a
+target endpoint is selected, request validation is generally left to that
+upstream endpoint.
 
 ## `/v1/messages` Routing
 
@@ -123,9 +123,11 @@ Main mappings:
 - Anthropic tool definitions become Responses function tools
 - Anthropic reasoning/thinking content is preserved using Responses reasoning
   items and encrypted content round-tripping
-- requested reasoning effort is probed per model; unsupported values are dropped
-  or downgraded to the nearest supported effort instead of being hardcoded by
-  model name
+- `output_config.effort` maps directly to `reasoning.effort`
+- `thinking: { type: "disabled" }` maps directly to
+  `reasoning: { effort: "none" }`
+- other Anthropic `thinking` states have no Responses request counterpart and
+  are ignored on request translation
 - Anthropic SSE is translated into named Responses SSE events with
   `sequence_number` and stable output item IDs
 
@@ -153,8 +155,7 @@ The Chat Completions route selects one of three paths:
    Completions ↔ Responses directly (no Anthropic intermediate).
 
 Unknown Chat Completions fields are only preserved on native `/chat/completions`
-passthrough. Translated paths only carry fields with explicit pairwise
-mappings.
+passthrough. Translated paths only carry fields with explicit pairwise mappings.
 
 ## Chat Completions ↔ Responses Translation
 
@@ -210,23 +211,15 @@ known and accepted trade-offs.
 
 **Request parameters lost or approximated (Messages → Responses):**
 
-| Parameter        | Behavior                                                                                     |
-| ---------------- | -------------------------------------------------------------------------------------------- |
-| `temperature`    | Hardcoded to `1` (reasoning models require it)                                               |
-| `budget_tokens`  | Discretized to `low`/`medium`/`high` effort, then clamped or dropped based on probed support |
-| `effort: "max"`  | Degraded to `"high"` (Responses API has no `"max"`)                                          |
-| `stop_sequences` | Dropped — no Responses API counterpart                                                       |
-| `top_k`          | Dropped — no Responses API counterpart                                                       |
-| `service_tier`   | Dropped — no Responses API counterpart                                                       |
-| `max_tokens`     | Floored to 12,800 (`Math.max`); original value lost if lower                                 |
-
-**Capability probing:**
-
-- Probe results are cached in-process and in the repo-backed cache.
-- Responses reasoning support is discovered by sending minimal `/responses`
-  requests for each candidate `reasoning.effort` value.
-- A failed probe does not hardcode any model family; the request falls back to
-  omitting the unsupported field for safety.
+| Parameter        | Behavior                                                                    |
+| ---------------- | --------------------------------------------------------------------------- |
+| `temperature`    | Hardcoded to `1` (reasoning models require it)                              |
+| `budget_tokens`  | Dropped — this gateway does not synthesize a Responses request value for it |
+| `effort: "max"`  | Preserved as-is and left to the upstream Responses endpoint to validate     |
+| `stop_sequences` | Dropped — no Responses API counterpart                                      |
+| `top_k`          | Dropped — no Responses API counterpart                                      |
+| `service_tier`   | Dropped — no Responses API counterpart                                      |
+| `max_tokens`     | Floored to 12,800 (`Math.max`); original value lost if lower                |
 
 **Reasoning round-trip:**
 
@@ -284,9 +277,9 @@ known and accepted trade-offs.
 
 **Request parameters lost or approximated (Chat Completions → Responses):**
 
-| Parameter         | Behavior                                                    |
-| ----------------- | ----------------------------------------------------------- |
-| `stop`            | Dropped — no Responses API counterpart                      |
+| Parameter | Behavior                               |
+| --------- | -------------------------------------- |
+| `stop`    | Dropped — no Responses API counterpart |
 
 **Reasoning round-trip:**
 

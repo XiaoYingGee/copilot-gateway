@@ -20,10 +20,10 @@ Copilot Gateway translates between API formats on the fly:
 
 The gateway auto-detects each model's supported endpoints (native Messages,
 Responses, or Chat Completions) and picks the best translation path. When
-endpoint metadata is not enough, it also runs and caches lightweight capability
-probes (for example, which `reasoning.effort` values a model accepts on
-`/responses`) so unsupported fields can be dropped without hardcoding model
-names.
+endpoint metadata says a request can use more than one upstream API, planning
+chooses among those native endpoints directly. Request-shape validation is left
+to the selected upstream endpoint unless a documented workaround needs to patch
+the request or response at that boundary.
 
 ## Quick Start
 

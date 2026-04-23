@@ -1,5 +1,4 @@
 import type { CopilotFetchOptions } from "../../../lib/copilot.ts";
-import type { ResponsesReasoningEffort } from "../../../lib/reasoning.ts";
 
 export type MessagesPlan =
   | {
@@ -14,7 +13,6 @@ export type MessagesPlan =
     target: "responses";
     wantsStream: boolean;
     fetchOptions: CopilotFetchOptions;
-    reasoningEffort: ResponsesReasoningEffort | null;
   }
   | {
     source: "messages";
@@ -49,7 +47,6 @@ export type ChatPlan =
     target: "responses";
     wantsStream: boolean;
     fetchOptions: CopilotFetchOptions;
-    reasoningEffort: ResponsesReasoningEffort | null;
   }
   | {
     source: "chat-completions";

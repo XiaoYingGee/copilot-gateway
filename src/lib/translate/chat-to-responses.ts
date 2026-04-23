@@ -19,16 +19,12 @@ import type {
   ResponseTool,
   ResponseToolChoice,
 } from "../responses-types.ts";
-import {
-  makeResponsesReasoningId,
-  type ResponsesReasoningEffort,
-} from "../reasoning.ts";
+import { makeResponsesReasoningId } from "../reasoning.ts";
 
 // ── Request: Chat Completions → Responses ──
 
 export function translateChatToResponses(
   payload: ChatCompletionsPayload,
-  options: { reasoningEffort?: ResponsesReasoningEffort | null } = {},
 ): ResponsesPayload {
   const instructions: string[] = [];
   const input: ResponseInputItem[] = [];
@@ -122,13 +118,6 @@ export function translateChatToResponses(
   // Non-standard Chat Completions top-level fields are only preserved on the
   // native `/chat/completions` path. Pairwise translation only carries fields
   // with an explicit source-side contract.
-  const effort = options.reasoningEffort;
-
-  if (effort) {
-    result.reasoning = { effort, summary: "detailed" };
-    result.include = ["reasoning.encrypted_content"];
-  }
-
   return result;
 }
 

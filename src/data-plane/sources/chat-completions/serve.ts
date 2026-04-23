@@ -61,9 +61,7 @@ export const serveChatCompletions = async (
     if (plan.target === "responses") {
       const result = await emitToResponses({
         sourceApi: "chat-completions",
-        payload: buildResponsesTargetRequest(payload, {
-          reasoningEffort: plan.reasoningEffort,
-        }),
+        payload: buildResponsesTargetRequest(payload),
         githubToken,
         accountType,
         fetchOptions: plan.fetchOptions,

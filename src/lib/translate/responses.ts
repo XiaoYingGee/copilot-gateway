@@ -32,7 +32,6 @@ import type {
 import {
   getAnthropicRequestedReasoningEffort,
   makeResponsesReasoningId,
-  type ResponsesReasoningEffort,
 } from "../reasoning.ts";
 import { safeJsonParse } from "./utils.ts";
 
@@ -40,14 +39,11 @@ import { safeJsonParse } from "./utils.ts";
 
 export function translateAnthropicToResponses(
   payload: AnthropicMessagesPayload,
-  options: { reasoningEffort?: ResponsesReasoningEffort | null } = {},
 ): ResponsesPayload {
-  // `undefined` means no planner override, so translate from the source
-  // contract directly. `null` means the planner explicitly decided to suppress
-  // a reasoning config on the Responses target.
-  const effort = options.reasoningEffort === undefined
-    ? getAnthropicRequestedReasoningEffort(payload)
-    : options.reasoningEffort;
+  // Preserve the source `output_config.effort` value as-is, even if the chosen
+  // Responses upstream may reject it. Translation stays pairwise and leaves
+  // target-side validation to the selected upstream endpoint.
+  const effort = getAnthropicRequestedReasoningEffort(payload);
   const reasoning = effort
     ? { effort, summary: "detailed" as const }
     : undefined;

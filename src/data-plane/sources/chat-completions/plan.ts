@@ -45,7 +45,6 @@ export const planChatRequest = async (
       target: "responses",
       wantsStream,
       fetchOptions,
-      reasoningEffort: null,
     };
   }
 

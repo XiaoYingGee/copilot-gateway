@@ -982,7 +982,7 @@ Deno.test("/v1/messages falls back to responses and preserves reasoning round-tr
   );
 });
 
-Deno.test("/v1/messages drops output_config.effort max when translating to responses", async () => {
+Deno.test("/v1/messages preserves output_config.effort max when translating to responses", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -1058,8 +1058,11 @@ Deno.test("/v1/messages drops output_config.effort max when translating to respo
   });
 
   assertExists(upstreamBody);
-  assertFalse("reasoning" in upstreamBody!);
-  assertFalse("include" in upstreamBody!);
+  assertEquals(
+    (upstreamBody!.reasoning as Record<string, unknown>).effort,
+    "max",
+  );
+  assertEquals(upstreamBody!.include, ["reasoning.encrypted_content"]);
 });
 
 Deno.test("/v1/messages with disabled thinking prefers responses on dual-endpoint models", async () => {
@@ -1095,13 +1098,6 @@ Deno.test("/v1/messages with disabled thinking prefers responses on dual-endpoin
     }
     if (url.pathname === "/responses") {
       const body = JSON.parse(await request.text()) as Record<string, unknown>;
-      if ((body.max_output_tokens as number | undefined) === 1) {
-        const reasoning = body.reasoning as Record<string, unknown> | undefined;
-        return !reasoning || reasoning.effort === "none"
-          ? jsonResponse({ ok: true })
-          : jsonResponse({ error: { message: "unsupported effort" } }, 400);
-      }
-
       upstreamBody = body;
       return sseResponse([
         {
