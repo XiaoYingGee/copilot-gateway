@@ -339,6 +339,240 @@ Deno.test("/v1/responses malformed JSON returns structured internal debug error"
   assertExists(body.error.stack);
 });
 
+Deno.test("/v1/responses falls back to chat completions for chat-only models", async () => {
+  const { apiKey } = await setupAppTest();
+
+  let upstreamBody: Record<string, unknown> | undefined;
+
+  await withMockedFetch(async (request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        {
+          id: "gpt-chat-only-responses",
+          supported_endpoints: ["/chat/completions"],
+        },
+      ]));
+    }
+    if (url.pathname === "/chat/completions") {
+      upstreamBody = JSON.parse(await request.text());
+      return jsonResponse({
+        id: "chatcmpl_resp_only",
+        object: "chat.completion",
+        created: 1,
+        model: "gpt-chat-only-responses",
+        choices: [{
+          index: 0,
+          message: {
+            role: "assistant",
+            content: "Hello from chat",
+          },
+          finish_reason: "stop",
+        }],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp("/v1/responses", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+      },
+      body: JSON.stringify({
+        model: "gpt-chat-only-responses",
+        input: [{ type: "message", role: "user", content: "Hi" }],
+        instructions: "system prompt",
+        temperature: 0.7,
+        top_p: 0.8,
+        max_output_tokens: 128,
+        tools: null,
+        tool_choice: "auto",
+        metadata: null,
+        stream: false,
+        store: false,
+        parallel_tool_calls: true,
+      }),
+    });
+
+    assertEquals(response.status, 200);
+
+    const body = await response.json();
+    assertEquals(body.status, "completed");
+    assertEquals(body.output_text, "Hello from chat");
+    assertEquals(body.output[0].type, "message");
+    assertEquals(body.output[0].content[0].text, "Hello from chat");
+  });
+
+  assertExists(upstreamBody);
+  const messages = upstreamBody!.messages as Array<Record<string, unknown>>;
+  assertEquals(upstreamBody!.model, "gpt-chat-only-responses");
+  assertEquals(messages[0].role, "system");
+  assertEquals(messages[0].content, "system prompt");
+  assertEquals(messages[1].role, "user");
+  assertEquals(messages[1].content, "Hi");
+  assertEquals(upstreamBody!.max_tokens, 128);
+});
+
+Deno.test("/v1/responses streams chat completions as Responses SSE for chat-only models", async () => {
+  const { apiKey } = await setupAppTest();
+
+  await withMockedFetch(async (request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        {
+          id: "gpt-chat-only-stream",
+          supported_endpoints: ["/chat/completions"],
+        },
+      ]));
+    }
+    if (url.pathname === "/chat/completions") {
+      return sseResponse([
+        {
+          data: {
+            id: "chatcmpl_stream_only",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "gpt-chat-only-stream",
+            choices: [{
+              index: 0,
+              delta: { role: "assistant" },
+              finish_reason: null,
+            }],
+          },
+        },
+        {
+          data: {
+            id: "chatcmpl_stream_only",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "gpt-chat-only-stream",
+            choices: [{
+              index: 0,
+              delta: { content: "Hello" },
+              finish_reason: null,
+            }],
+          },
+        },
+        {
+          data: {
+            id: "chatcmpl_stream_only",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "gpt-chat-only-stream",
+            choices: [{
+              index: 0,
+              delta: {},
+              finish_reason: "stop",
+            }],
+          },
+        },
+        {
+          data: {
+            id: "chatcmpl_stream_only",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "gpt-chat-only-stream",
+            choices: [],
+            usage: {
+              prompt_tokens: 12,
+              completion_tokens: 4,
+              total_tokens: 16,
+            },
+          },
+        },
+        { data: "[DONE]" },
+      ]);
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp("/v1/responses", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+      },
+      body: JSON.stringify({
+        model: "gpt-chat-only-stream",
+        input: [{ type: "message", role: "user", content: "Hi" }],
+        instructions: null,
+        temperature: 1,
+        top_p: null,
+        max_output_tokens: 64,
+        tools: null,
+        tool_choice: "auto",
+        metadata: null,
+        stream: true,
+        store: false,
+        parallel_tool_calls: true,
+      }),
+    });
+
+    assertEquals(response.status, 200);
+    assertEquals(response.headers.get("content-type"), "text/event-stream");
+
+    const events = parseSSEText(await response.text());
+
+    assertEquals(events.map((event) => event.event), [
+      "response.created",
+      "response.in_progress",
+      "response.output_item.added",
+      "response.content_part.added",
+      "response.output_text.delta",
+      "response.output_text.done",
+      "response.content_part.done",
+      "response.output_item.done",
+      "response.completed",
+    ]);
+
+    const delta = JSON.parse(events[4].data) as Record<string, unknown>;
+    const completed = JSON.parse(events[8].data) as Record<string, unknown>;
+
+    assertEquals(delta.delta, "Hello");
+    assertEquals(
+      (completed.response as Record<string, unknown>).output_text,
+      "Hello",
+    );
+    assertEquals(
+      ((completed.response as Record<string, unknown>).usage as Record<
+        string,
+        unknown
+      >).output_tokens,
+      4,
+    );
+  });
+});
+
 Deno.test("/v1/responses via messages fills missing max_tokens from model limits", async () => {
   const { apiKey } = await setupAppTest();
 
@@ -458,7 +692,7 @@ Deno.test("/v1/responses via messages fills missing max_tokens from model limits
   assertEquals(upstreamBody!.max_tokens, 4096);
 });
 
-Deno.test("/v1/responses via messages translates Anthropic SSE into Responses SSE", async () => {
+Deno.test("/v1/responses prefers messages over chat completions when both translated paths are available", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -478,7 +712,10 @@ Deno.test("/v1/responses via messages translates Anthropic SSE into Responses SS
     }
     if (url.pathname === "/models") {
       return jsonResponse(copilotModels([
-        { id: "claude-via-messages", supported_endpoints: ["/v1/messages"] },
+        {
+          id: "claude-via-messages",
+          supported_endpoints: ["/v1/messages", "/chat/completions"],
+        },
       ]));
     }
     if (url.pathname === "/v1/messages") {

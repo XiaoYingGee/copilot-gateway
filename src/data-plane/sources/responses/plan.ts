@@ -56,5 +56,14 @@ export const planResponsesRequest = async (
     };
   }
 
+  if (capabilities.supportsChatCompletions) {
+    return {
+      source: "responses",
+      target: "chat-completions",
+      wantsStream,
+      fetchOptions,
+    };
+  }
+
   return null;
 };

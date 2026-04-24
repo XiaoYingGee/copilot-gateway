@@ -33,6 +33,12 @@ export type ResponsesPlan =
     target: "messages";
     wantsStream: boolean;
     fetchOptions: CopilotFetchOptions;
+  }
+  | {
+    source: "responses";
+    target: "chat-completions";
+    wantsStream: boolean;
+    fetchOptions: CopilotFetchOptions;
   };
 
 export type ChatPlan =

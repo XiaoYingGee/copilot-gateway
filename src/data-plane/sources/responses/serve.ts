@@ -6,10 +6,13 @@ import type {
 import { getGithubCredentials } from "../../../lib/github.ts";
 import { normalizeResponsesRequest } from "./normalize/request.ts";
 import { planResponsesRequest } from "./plan.ts";
-import { buildTargetRequest } from "../../translate/responses-via-messages/build-target-request.ts";
+import { buildTargetRequest as buildMessagesTargetRequest } from "../../translate/responses-via-messages/build-target-request.ts";
+import { buildTargetRequest as buildChatCompletionsTargetRequest } from "../../translate/responses-via-chat-completions/build-target-request.ts";
 import { emitToResponses } from "../../targets/responses/emit.ts";
 import { emitToMessages } from "../../targets/messages/emit.ts";
+import { emitToChatCompletions } from "../../targets/chat-completions/emit.ts";
 import { translateToSourceEvents } from "../../translate/responses-via-messages/translate-to-source-events.ts";
+import { translateToSourceEvents as translateChatCompletionsToSourceEvents } from "../../translate/responses-via-chat-completions/translate-to-source-events.ts";
 import { respondResponses } from "./respond.ts";
 import {
   internalErrorResult,
@@ -65,10 +68,35 @@ export const serveResponses = async (
       );
     }
 
-    const messagesPayload = buildTargetRequest(payload);
-    const result = await emitToMessages({
+    if (plan.target === "messages") {
+      const messagesPayload = buildMessagesTargetRequest(payload);
+      const result = await emitToMessages({
+        sourceApi: "responses",
+        payload: messagesPayload,
+        githubToken,
+        accountType,
+        fetchOptions: plan.fetchOptions,
+      });
+
+      return await respondResponses(
+        c,
+        withTranslatedEvents(
+          result,
+          (events) =>
+            translateToSourceEvents(
+              events,
+              createTranslatedResponseId(),
+              messagesPayload.model,
+            ),
+        ),
+        plan.wantsStream,
+      );
+    }
+
+    const chatPayload = buildChatCompletionsTargetRequest(payload);
+    const result = await emitToChatCompletions({
       sourceApi: "responses",
-      payload: messagesPayload,
+      payload: chatPayload,
       githubToken,
       accountType,
       fetchOptions: plan.fetchOptions,
@@ -76,15 +104,7 @@ export const serveResponses = async (
 
     return await respondResponses(
       c,
-      withTranslatedEvents(
-        result,
-        (events) =>
-          translateToSourceEvents(
-            events,
-            createTranslatedResponseId(),
-            messagesPayload.model,
-          ),
-      ),
+      withTranslatedEvents(result, translateChatCompletionsToSourceEvents),
       plan.wantsStream,
     );
   } catch (error) {
