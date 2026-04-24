@@ -1,5 +1,5 @@
-// OpenAI Responses API type definitions
-// Used for translating Anthropic Messages ↔ Responses API
+// Responses API type definitions
+// Used for translating Messages ↔ Responses APIs
 
 // ── Request types ──
 

@@ -1,4 +1,4 @@
-import type { AnthropicMessagesPayload } from "../../../../lib/anthropic-types.ts";
+import type { MessagesPayload } from "../../../../lib/messages-types.ts";
 
 /**
  * Claude Code injects `x-anthropic-billing-header` lines containing a per-turn
@@ -22,7 +22,7 @@ const stripBillingAttribution = (text: string): string =>
     .trim();
 
 export const stripMessagesBillingAttribution = (
-  payload: AnthropicMessagesPayload,
+  payload: MessagesPayload,
 ): void => {
   if (typeof payload.system === "string") {
     payload.system = stripBillingAttribution(payload.system);

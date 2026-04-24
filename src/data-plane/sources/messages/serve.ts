@@ -1,8 +1,8 @@
 import type { Context } from "hono";
 import type {
-  AnthropicMessagesPayload,
-  AnthropicResponse,
-} from "../../../lib/anthropic-types.ts";
+  MessagesPayload,
+  MessagesResponse,
+} from "../../../lib/messages-types.ts";
 import { getGithubCredentials } from "../../../lib/github.ts";
 import { normalizeMessagesRequest } from "./normalize/request.ts";
 import { planMessagesRequest } from "./plan.ts";
@@ -25,8 +25,8 @@ const withTranslatedEvents = <T>(
   result: StreamExecuteResult<T>,
   translate: (
     events: AsyncIterable<StreamFrame<T>>,
-  ) => AsyncIterable<StreamFrame<AnthropicResponse>>,
-): StreamExecuteResult<AnthropicResponse> =>
+  ) => AsyncIterable<StreamFrame<MessagesResponse>>,
+): StreamExecuteResult<MessagesResponse> =>
   result.type === "events"
     ? { type: "events", events: translate(result.events) }
     : result;
@@ -35,7 +35,7 @@ export const serveMessages = async (
   c: Context,
 ): Promise<Response> => {
   try {
-    const payload = await c.req.json<AnthropicMessagesPayload>();
+    const payload = await c.req.json<MessagesPayload>();
     normalizeMessagesRequest(payload);
     c.set("model", payload.model || "unknown");
 

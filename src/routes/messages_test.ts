@@ -32,7 +32,7 @@ Deno.test("/v1/messages malformed JSON returns structured internal debug error",
   assertExists(body.error.stack);
 });
 
-Deno.test("/v1/messages rewrites upstream context-window errors to Anthropic compact form", async () => {
+Deno.test("/v1/messages rewrites upstream context-window errors to Messages compact form", async () => {
   const { apiKey } = await setupAppTest();
 
   const upstreamError = {
@@ -537,7 +537,7 @@ Deno.test("/v1/messages native streaming filters trailing DONE sentinel", async 
   });
 });
 
-Deno.test("/v1/messages forwards Anthropic tool strict field on native messages", async () => {
+Deno.test("/v1/messages forwards Messages tool strict field on native messages", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -643,7 +643,7 @@ Deno.test("/v1/messages forwards Anthropic tool strict field on native messages"
   );
 });
 
-Deno.test("/v1/messages keeps strict Anthropic tools on native messages when both endpoints are available", async () => {
+Deno.test("/v1/messages keeps strict Messages tools on native messages when both endpoints are available", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -721,7 +721,7 @@ Deno.test("/v1/messages keeps strict Anthropic tools on native messages when bot
     }
     if (url.pathname === "/chat/completions") {
       throw new Error(
-        "chat fallback should not be used for strict Anthropic tools",
+        "chat fallback should not be used for strict Messages tools",
       );
     }
 

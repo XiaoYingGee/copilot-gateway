@@ -1,17 +1,17 @@
-import type { AnthropicMessagesPayload } from "../../../../lib/anthropic-types.ts";
+import type { MessagesPayload } from "../../../../lib/messages-types.ts";
 
 /**
- * Anthropic exposes a built-in `web_search` tool, but Copilot's native
- * Anthropic-compatible `/v1/messages` surface does not accept it today. We
- * drop it at source normalize so native and translated Messages routing start
- * from the same cleaned request.
+ * Messages exposes a built-in `web_search` tool, but Copilot's native
+ * `/v1/messages` surface does not accept it today. We drop it at source
+ * normalize so native and translated Messages routing start from the same
+ * cleaned request.
  *
  * References:
  * - https://github.com/caozhiyuan/copilot-api/commit/3c12f580bf4d269ab18838bcc259a89719f8a2cd
  * - https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/web-search-tool
  */
 export const stripUnsupportedMessagesTools = (
-  payload: AnthropicMessagesPayload,
+  payload: MessagesPayload,
 ): void => {
   if (!payload.tools) return;
 

@@ -1,14 +1,14 @@
-import type { AnthropicMessagesPayload } from "../../../lib/anthropic-types.ts";
+import type { MessagesPayload } from "../../../lib/messages-types.ts";
 import { getModelCapabilities } from "../../shared/models/get-model-capabilities.ts";
 import type { MessagesPlan } from "../../shared/types/plan.ts";
 
-const hasVision = (payload: AnthropicMessagesPayload): boolean =>
+const hasVision = (payload: MessagesPayload): boolean =>
   payload.messages.some((message) =>
     Array.isArray(message.content) &&
     message.content.some((block) => block.type === "image")
   );
 
-const getInitiator = (payload: AnthropicMessagesPayload): "user" | "agent" => {
+const getInitiator = (payload: MessagesPayload): "user" | "agent" => {
   const lastMessage = payload.messages[payload.messages.length - 1];
   if (!lastMessage || lastMessage.role !== "user") return "agent";
   if (!Array.isArray(lastMessage.content)) return "user";
@@ -19,7 +19,7 @@ const getInitiator = (payload: AnthropicMessagesPayload): "user" | "agent" => {
 };
 
 export const planMessagesRequest = async (
-  payload: AnthropicMessagesPayload,
+  payload: MessagesPayload,
   githubToken: string,
   accountType: string,
   rawBeta: string | undefined,

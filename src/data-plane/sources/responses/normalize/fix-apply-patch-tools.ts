@@ -1,7 +1,7 @@
 import type { ResponsesPayload } from "../../../../lib/responses-types.ts";
 
 /**
- * Public OpenAI Responses supports both function tools and custom tools, but
+ * Public Responses supports both function tools and custom tools, but
  * editor-style `apply_patch` flows are more interoperable when exposed as a
  * function tool with a single `input` string parameter. Codex expects that
  * parameter name, and other Copilot gateways normalize to the same shape.

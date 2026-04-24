@@ -242,7 +242,7 @@ function extractUsageFromStreamEvent(
       : null;
   }
 
-  // In translated streams (OpenAI→Anthropic), the message_start may have
+  // In translated streams targeting Messages, the message_start may have
   // input_tokens=0 because the upstream usage-only chunk arrives after the
   // first chunk. The usage-only chunk generates a supplemental message_delta
   // carrying both input_tokens and output_tokens. We only extract input_tokens

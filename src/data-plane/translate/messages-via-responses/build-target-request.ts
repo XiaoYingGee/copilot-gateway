@@ -1,5 +1,5 @@
-import type { AnthropicMessagesPayload } from "../../../lib/anthropic-types.ts";
-import { translateAnthropicToResponses } from "../../../lib/translate/responses.ts";
+import type { MessagesPayload } from "../../../lib/messages-types.ts";
+import { translateMessagesToResponses } from "../../../lib/translate/messages-to-responses.ts";
 
-export const buildTargetRequest = (payload: AnthropicMessagesPayload) =>
-  translateAnthropicToResponses(payload);
+export const buildTargetRequest = (payload: MessagesPayload) =>
+  translateMessagesToResponses(payload);

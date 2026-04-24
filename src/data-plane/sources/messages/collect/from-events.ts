@@ -1,5 +1,5 @@
-import type { AnthropicResponse } from "../../../../lib/anthropic-types.ts";
-import { reassembleAnthropicSSE } from "../../../../lib/sse-reassemble.ts";
+import type { MessagesResponse } from "../../../../lib/messages-types.ts";
+import { reassembleMessagesSSE } from "../../../../lib/sse-reassemble.ts";
 import {
   collectSSE,
   sseFramesToStream,
@@ -10,8 +10,8 @@ import {
   type StreamFrame,
 } from "../../../shared/stream/types.ts";
 
-export const anthropicResponseToSSEFrames = (
-  response: AnthropicResponse,
+export const messagesResponseToSSEFrames = (
+  response: MessagesResponse,
 ): SseFrame[] => {
   const frames: SseFrame[] = [
     sseFrame(
@@ -204,8 +204,8 @@ export const anthropicResponseToSSEFrames = (
   return frames;
 };
 
-export const expandAnthropicFrames = async function* (
-  frames: AsyncIterable<StreamFrame<AnthropicResponse>>,
+export const expandMessagesFrames = async function* (
+  frames: AsyncIterable<StreamFrame<MessagesResponse>>,
 ): AsyncGenerator<SseFrame> {
   for await (const frame of frames) {
     if (frame.type === "sse") {
@@ -213,13 +213,13 @@ export const expandAnthropicFrames = async function* (
       continue;
     }
 
-    yield* anthropicResponseToSSEFrames(frame.data);
+    yield* messagesResponseToSSEFrames(frame.data);
   }
 };
 
-export const collectAnthropicEventsToResponse = async (
-  frames: AsyncIterable<StreamFrame<AnthropicResponse>>,
-): Promise<AnthropicResponse> => {
-  const collected = await collectSSE(expandAnthropicFrames(frames));
-  return await reassembleAnthropicSSE(sseFramesToStream(collected));
+export const collectMessagesEventsToResponse = async (
+  frames: AsyncIterable<StreamFrame<MessagesResponse>>,
+): Promise<MessagesResponse> => {
+  const collected = await collectSSE(expandMessagesFrames(frames));
+  return await reassembleMessagesSSE(sseFramesToStream(collected));
 };

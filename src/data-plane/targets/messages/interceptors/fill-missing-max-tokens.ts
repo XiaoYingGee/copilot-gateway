@@ -1,10 +1,10 @@
-import type { AnthropicResponse } from "../../../../lib/anthropic-types.ts";
+import type { MessagesResponse } from "../../../../lib/messages-types.ts";
 import { getModelCapabilities } from "../../../shared/models/get-model-capabilities.ts";
 import type { TargetInterceptor } from "../../run-interceptors.ts";
 import type { EmitToMessagesInput } from "../emit.ts";
 
 /**
- * Anthropic Messages requires `max_tokens`, but translated Chat Completions and
+ * Messages requires `max_tokens`, but translated Chat Completions and
  * Responses requests may omit their output-token cap entirely.
  *
  * We only synthesize this value after planning has committed to the Messages
@@ -13,8 +13,8 @@ import type { EmitToMessagesInput } from "../emit.ts";
  *
  * Prefer the model's advertised `/models` output cap when Copilot exposes one.
  * Other gateways take the same general approach: `copilot-api` fills missing
- * OpenAI `max_tokens` from model capabilities, and LiteLLM first asks its
- * model registry before falling back to a provider default.
+ * Chat Completions `max_tokens` from model capabilities, and LiteLLM first
+ * asks its model registry before falling back to a provider default.
  *
  * `8192` remains the last-resort gateway policy default when we cannot infer a
  * model cap. There is no single ecosystem standard catch-all value here:
@@ -30,7 +30,7 @@ import type { EmitToMessagesInput } from "../emit.ts";
  */
 export const withMissingMaxTokensFilled: TargetInterceptor<
   EmitToMessagesInput,
-  AnthropicResponse
+  MessagesResponse
 > = async (ctx, run) => {
   if (ctx.sourceApi !== "messages" && ctx.payload.max_tokens == null) {
     const { maxOutputTokens } = await getModelCapabilities(

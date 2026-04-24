@@ -2,11 +2,11 @@ import type { Context } from "hono";
 import { copilotFetch } from "../lib/copilot.ts";
 import { getGithubCredentials } from "../lib/github.ts";
 import { normalizeModelName } from "../lib/model-name.ts";
-import type { AnthropicMessagesPayload } from "../lib/anthropic-types.ts";
+import type { MessagesPayload } from "../lib/messages-types.ts";
 
 export const countTokens = async (c: Context) => {
   try {
-    const payload = await c.req.json<AnthropicMessagesPayload>();
+    const payload = await c.req.json<MessagesPayload>();
     if (typeof payload.model === "string") payload.model = normalizeModelName(payload.model);
 
     const { token: githubToken, accountType } = await getGithubCredentials();

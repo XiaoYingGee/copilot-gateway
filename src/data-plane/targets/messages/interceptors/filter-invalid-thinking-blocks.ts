@@ -1,4 +1,4 @@
-import type { AnthropicResponse } from "../../../../lib/anthropic-types.ts";
+import type { MessagesResponse } from "../../../../lib/messages-types.ts";
 import type { TargetInterceptor } from "../../run-interceptors.ts";
 import type { EmitToMessagesInput } from "../emit.ts";
 
@@ -13,7 +13,7 @@ import type { EmitToMessagesInput } from "../emit.ts";
  */
 export const withInvalidThinkingBlocksFiltered: TargetInterceptor<
   EmitToMessagesInput,
-  AnthropicResponse
+  MessagesResponse
 > = async (ctx, run) => {
   for (const message of ctx.payload.messages) {
     if (message.role !== "assistant" || !Array.isArray(message.content)) {

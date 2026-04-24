@@ -1,14 +1,16 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import {
-  reassembleAnthropicSSE,
   reassembleChatCompletionsSSE,
+  reassembleMessagesSSE,
   reassembleResponsesSSE,
 } from "./sse-reassemble.ts";
-import type { AnthropicResponse } from "./anthropic-types.ts";
+import type { MessagesResponse } from "./messages-types.ts";
 import type { ChatCompletionResponse } from "./chat-completions-types.ts";
 import type { ResponsesResult } from "./responses-types.ts";
 
-function makeSSEBody(chunks: Array<{ event?: string; data: unknown }>): ReadableStream<Uint8Array> {
+function makeSSEBody(
+  chunks: Array<{ event?: string; data: unknown }>,
+): ReadableStream<Uint8Array> {
   const text = chunks.map((c) => {
     const lines: string[] = [];
     if (c.event) lines.push(`event: ${c.event}`);
@@ -25,9 +27,9 @@ function makeSSEBody(chunks: Array<{ event?: string; data: unknown }>): Readable
   });
 }
 
-// ── reassembleAnthropicSSE ──
+// ── reassembleMessagesSSE ──
 
-Deno.test("reassembleAnthropicSSE reassembles text response", async () => {
+Deno.test("reassembleMessagesSSE reassembles text response", async () => {
   const body = makeSSEBody([
     {
       event: "message_start",
@@ -47,37 +49,59 @@ Deno.test("reassembleAnthropicSSE reassembles text response", async () => {
     },
     {
       event: "content_block_start",
-      data: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+      data: {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "text", text: "" },
+      },
     },
     {
       event: "content_block_delta",
-      data: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hello " } },
+      data: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "Hello " },
+      },
     },
     {
       event: "content_block_delta",
-      data: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "world" } },
+      data: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "world" },
+      },
     },
-    { event: "content_block_stop", data: { type: "content_block_stop", index: 0 } },
+    {
+      event: "content_block_stop",
+      data: { type: "content_block_stop", index: 0 },
+    },
     {
       event: "message_delta",
-      data: { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 5 } },
+      data: {
+        type: "message_delta",
+        delta: { stop_reason: "end_turn", stop_sequence: null },
+        usage: { output_tokens: 5 },
+      },
     },
     { event: "message_stop", data: { type: "message_stop" } },
   ]);
 
-  const result: AnthropicResponse = await reassembleAnthropicSSE(body);
+  const result: MessagesResponse = await reassembleMessagesSSE(body);
 
   assertEquals(result.id, "msg_1");
   assertEquals(result.model, "claude-test");
   assertEquals(result.stop_reason, "end_turn");
   assertEquals(result.content.length, 1);
   assertEquals(result.content[0].type, "text");
-  assertEquals((result.content[0] as { type: "text"; text: string }).text, "Hello world");
+  assertEquals(
+    (result.content[0] as { type: "text"; text: string }).text,
+    "Hello world",
+  );
   assertEquals(result.usage.input_tokens, 10);
   assertEquals(result.usage.output_tokens, 5);
 });
 
-Deno.test("reassembleAnthropicSSE reassembles tool_use response", async () => {
+Deno.test("reassembleMessagesSSE reassembles tool_use response", async () => {
   const body = makeSSEBody([
     {
       event: "message_start",
@@ -97,36 +121,60 @@ Deno.test("reassembleAnthropicSSE reassembles tool_use response", async () => {
     },
     {
       event: "content_block_start",
-      data: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tu_1", name: "calc" } },
+      data: {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "tool_use", id: "tu_1", name: "calc" },
+      },
     },
     {
       event: "content_block_delta",
-      data: { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"x":' } },
+      data: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "input_json_delta", partial_json: '{"x":' },
+      },
     },
     {
       event: "content_block_delta",
-      data: { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '42}' } },
+      data: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "input_json_delta", partial_json: "42}" },
+      },
     },
-    { event: "content_block_stop", data: { type: "content_block_stop", index: 0 } },
+    {
+      event: "content_block_stop",
+      data: { type: "content_block_stop", index: 0 },
+    },
     {
       event: "message_delta",
-      data: { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 10 } },
+      data: {
+        type: "message_delta",
+        delta: { stop_reason: "tool_use" },
+        usage: { output_tokens: 10 },
+      },
     },
     { event: "message_stop", data: { type: "message_stop" } },
   ]);
 
-  const result = await reassembleAnthropicSSE(body);
+  const result = await reassembleMessagesSSE(body);
 
   assertEquals(result.stop_reason, "tool_use");
   assertEquals(result.content.length, 1);
   assertEquals(result.content[0].type, "tool_use");
-  const tu = result.content[0] as { type: "tool_use"; id: string; name: string; input: Record<string, unknown> };
+  const tu = result.content[0] as {
+    type: "tool_use";
+    id: string;
+    name: string;
+    input: Record<string, unknown>;
+  };
   assertEquals(tu.id, "tu_1");
   assertEquals(tu.name, "calc");
   assertEquals(tu.input, { x: 42 });
 });
 
-Deno.test("reassembleAnthropicSSE reassembles thinking blocks", async () => {
+Deno.test("reassembleMessagesSSE reassembles thinking blocks", async () => {
   const body = makeSSEBody([
     {
       event: "message_start",
@@ -146,53 +194,90 @@ Deno.test("reassembleAnthropicSSE reassembles thinking blocks", async () => {
     },
     {
       event: "content_block_start",
-      data: { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } },
+      data: {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "thinking", thinking: "" },
+      },
     },
     {
       event: "content_block_delta",
-      data: { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "let me think" } },
+      data: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "thinking_delta", thinking: "let me think" },
+      },
     },
     {
       event: "content_block_delta",
-      data: { type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "sig_123" } },
+      data: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "signature_delta", signature: "sig_123" },
+      },
     },
-    { event: "content_block_stop", data: { type: "content_block_stop", index: 0 } },
+    {
+      event: "content_block_stop",
+      data: { type: "content_block_stop", index: 0 },
+    },
     {
       event: "content_block_start",
-      data: { type: "content_block_start", index: 1, content_block: { type: "text", text: "" } },
+      data: {
+        type: "content_block_start",
+        index: 1,
+        content_block: { type: "text", text: "" },
+      },
     },
     {
       event: "content_block_delta",
-      data: { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "answer" } },
+      data: {
+        type: "content_block_delta",
+        index: 1,
+        delta: { type: "text_delta", text: "answer" },
+      },
     },
-    { event: "content_block_stop", data: { type: "content_block_stop", index: 1 } },
+    {
+      event: "content_block_stop",
+      data: { type: "content_block_stop", index: 1 },
+    },
     {
       event: "message_delta",
-      data: { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 20 } },
+      data: {
+        type: "message_delta",
+        delta: { stop_reason: "end_turn" },
+        usage: { output_tokens: 20 },
+      },
     },
     { event: "message_stop", data: { type: "message_stop" } },
   ]);
 
-  const result = await reassembleAnthropicSSE(body);
+  const result = await reassembleMessagesSSE(body);
 
   assertEquals(result.content.length, 2);
   assertEquals(result.content[0].type, "thinking");
-  const thinking = result.content[0] as { type: "thinking"; thinking: string; signature?: string };
+  const thinking = result.content[0] as {
+    type: "thinking";
+    thinking: string;
+    signature?: string;
+  };
   assertEquals(thinking.thinking, "let me think");
   assertEquals(thinking.signature, "sig_123");
   assertEquals(result.content[1].type, "text");
 });
 
-Deno.test("reassembleAnthropicSSE throws on error event", async () => {
+Deno.test("reassembleMessagesSSE throws on error event", async () => {
   const body = makeSSEBody([
     {
       event: "error",
-      data: { type: "error", error: { type: "overloaded_error", message: "overloaded" } },
+      data: {
+        type: "error",
+        error: { type: "overloaded_error", message: "overloaded" },
+      },
     },
   ]);
 
   await assertRejects(
-    () => reassembleAnthropicSSE(body),
+    () => reassembleMessagesSSE(body),
     Error,
     "overloaded",
   );
@@ -232,7 +317,9 @@ Deno.test("reassembleChatCompletionsSSE reassembles text response", async () => 
     { data: "[DONE]" },
   ]);
 
-  const result: ChatCompletionResponse = await reassembleChatCompletionsSSE(body);
+  const result: ChatCompletionResponse = await reassembleChatCompletionsSSE(
+    body,
+  );
 
   assertEquals(result.id, "cmpl_1");
   assertEquals(result.model, "gpt-test");
@@ -295,8 +382,14 @@ Deno.test("reassembleChatCompletionsSSE reassembles tool calls", async () => {
   assertEquals(result.choices[0].finish_reason, "tool_calls");
   assertEquals(result.choices[0].message.tool_calls?.length, 1);
   assertEquals(result.choices[0].message.tool_calls![0].id, "call_1");
-  assertEquals(result.choices[0].message.tool_calls![0].function.name, "lookup");
-  assertEquals(result.choices[0].message.tool_calls![0].function.arguments, '{"city":"Tokyo"}');
+  assertEquals(
+    result.choices[0].message.tool_calls![0].function.name,
+    "lookup",
+  );
+  assertEquals(
+    result.choices[0].message.tool_calls![0].function.arguments,
+    '{"city":"Tokyo"}',
+  );
 });
 
 Deno.test("reassembleChatCompletionsSSE reassembles reasoning fields", async () => {
@@ -309,7 +402,11 @@ Deno.test("reassembleChatCompletionsSSE reassembles reasoning fields", async () 
         model: "gpt-test",
         choices: [{
           index: 0,
-          delta: { role: "assistant", reasoning_text: "think", reasoning_opaque: "enc" },
+          delta: {
+            role: "assistant",
+            reasoning_text: "think",
+            reasoning_opaque: "enc",
+          },
           finish_reason: null,
         }],
       },
@@ -346,15 +443,37 @@ Deno.test("reassembleResponsesSSE extracts response from completed event", async
     model: "gpt-test",
     status: "completed",
     output_text: "Hello",
-    output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "Hello" }] }],
+    output: [{
+      type: "message",
+      role: "assistant",
+      content: [{ type: "output_text", text: "Hello" }],
+    }],
     usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
   };
 
   const body = makeSSEBody([
-    { event: "response.created", data: { type: "response.created", response: { ...expected, status: "in_progress" } } },
-    { event: "response.in_progress", data: { type: "response.in_progress", response: { ...expected, status: "in_progress" } } },
-    { event: "response.output_text.delta", data: { type: "response.output_text.delta", delta: "Hello" } },
-    { event: "response.completed", data: { type: "response.completed", response: expected } },
+    {
+      event: "response.created",
+      data: {
+        type: "response.created",
+        response: { ...expected, status: "in_progress" },
+      },
+    },
+    {
+      event: "response.in_progress",
+      data: {
+        type: "response.in_progress",
+        response: { ...expected, status: "in_progress" },
+      },
+    },
+    {
+      event: "response.output_text.delta",
+      data: { type: "response.output_text.delta", delta: "Hello" },
+    },
+    {
+      event: "response.completed",
+      data: { type: "response.completed", response: expected },
+    },
   ]);
 
   const result = await reassembleResponsesSSE(body);
@@ -376,7 +495,10 @@ Deno.test("reassembleResponsesSSE handles incomplete event", async () => {
   };
 
   const body = makeSSEBody([
-    { event: "response.incomplete", data: { type: "response.incomplete", response: incomplete } },
+    {
+      event: "response.incomplete",
+      data: { type: "response.incomplete", response: incomplete },
+    },
   ]);
 
   const result = await reassembleResponsesSSE(body);
@@ -397,7 +519,10 @@ Deno.test("reassembleResponsesSSE throws on error event", async () => {
 
 Deno.test("reassembleResponsesSSE throws when stream ends without terminal event", async () => {
   const body = makeSSEBody([
-    { event: "response.created", data: { type: "response.created", response: {} } },
+    {
+      event: "response.created",
+      data: { type: "response.created", response: {} },
+    },
   ]);
 
   await assertRejects(

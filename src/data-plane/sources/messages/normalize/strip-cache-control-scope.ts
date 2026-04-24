@@ -1,8 +1,8 @@
-import type { AnthropicMessagesPayload } from "../../../../lib/anthropic-types.ts";
+import type { MessagesPayload } from "../../../../lib/messages-types.ts";
 
 /**
  * Claude Code's prompt-caching-scope beta adds `cache_control.scope`, but
- * Copilot's Anthropic-compatible endpoint rejects that extra field with 400.
+ * Copilot's native `/v1/messages` endpoint rejects that extra field with 400.
  * We strip only `scope` and keep the rest of `cache_control` intact so
  * ephemeral prompt caching still works.
  *
@@ -22,7 +22,7 @@ const stripBlockCacheControlScope = (
 };
 
 export const stripMessagesCacheControlScope = (
-  payload: AnthropicMessagesPayload,
+  payload: MessagesPayload,
 ): void => {
   if (Array.isArray(payload.system)) {
     for (

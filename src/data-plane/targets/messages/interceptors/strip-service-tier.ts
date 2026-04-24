@@ -1,12 +1,12 @@
-import type { AnthropicResponse } from "../../../../lib/anthropic-types.ts";
+import type { MessagesResponse } from "../../../../lib/messages-types.ts";
 import type { TargetInterceptor } from "../../run-interceptors.ts";
 import type { EmitToMessagesInput } from "../emit.ts";
 
 /**
- * `service_tier` is part of Anthropic Messages, but Copilot does not expose
- * a compatible knob on its Anthropic or OpenAI compatibility layers. Strip it
- * only after planning has committed to the native Messages target, so source
- * planning still sees the caller's real request.
+ * `service_tier` is part of Messages, but Copilot does not expose a compatible
+ * knob on its native Messages or translated Chat Completions/Responses paths.
+ * Strip it only after planning has committed to the native Messages target,
+ * so source planning still sees the caller's real request.
  *
  * References:
  * - https://github.com/caozhiyuan/copilot-api/pull/45
@@ -15,7 +15,7 @@ import type { EmitToMessagesInput } from "../emit.ts";
  */
 export const withServiceTierStripped: TargetInterceptor<
   EmitToMessagesInput,
-  AnthropicResponse
+  MessagesResponse
 > = async (ctx, run) => {
   const { service_tier: _, ...payload } = ctx.payload;
   ctx.payload = payload;

@@ -1,9 +1,9 @@
 import { assertEquals } from "@std/assert";
 import {
-  createAnthropicToResponsesStreamState,
-  translateAnthropicEventToResponsesEvents,
-} from "./anthropic-to-responses-stream.ts";
-import type { AnthropicStreamEventData } from "../anthropic-types.ts";
+  createMessagesToResponsesStreamState,
+  translateMessagesEventToResponsesEvents,
+} from "./messages-to-responses-stream.ts";
+import type { MessagesStreamEventData } from "../messages-types.ts";
 import type { ResponsesResult } from "../responses-types.ts";
 
 // ── Helpers ──
@@ -14,9 +14,12 @@ function runToCompletion(usage: {
   cache_read_input_tokens?: number;
   cache_creation_input_tokens?: number;
 }): ResponsesResult {
-  const state = createAnthropicToResponsesStreamState("resp_test", "claude-sonnet-4-20250514");
+  const state = createMessagesToResponsesStreamState(
+    "resp_test",
+    "claude-sonnet-4-20250514",
+  );
 
-  translateAnthropicEventToResponsesEvents({
+  translateMessagesEventToResponsesEvents({
     type: "message_start",
     message: {
       id: "msg_test",
@@ -33,27 +36,39 @@ function runToCompletion(usage: {
         cache_creation_input_tokens: usage.cache_creation_input_tokens,
       },
     },
-  } as AnthropicStreamEventData, state);
+  } as MessagesStreamEventData, state);
 
-  translateAnthropicEventToResponsesEvents(
-    { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } } as AnthropicStreamEventData,
+  translateMessagesEventToResponsesEvents(
+    {
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "text", text: "" },
+    } as MessagesStreamEventData,
     state,
   );
-  translateAnthropicEventToResponsesEvents(
-    { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hello" } } as AnthropicStreamEventData,
+  translateMessagesEventToResponsesEvents(
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "text_delta", text: "Hello" },
+    } as MessagesStreamEventData,
     state,
   );
-  translateAnthropicEventToResponsesEvents(
-    { type: "content_block_stop", index: 0 } as AnthropicStreamEventData,
+  translateMessagesEventToResponsesEvents(
+    { type: "content_block_stop", index: 0 } as MessagesStreamEventData,
     state,
   );
-  translateAnthropicEventToResponsesEvents(
-    { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: usage.output_tokens } } as AnthropicStreamEventData,
+  translateMessagesEventToResponsesEvents(
+    {
+      type: "message_delta",
+      delta: { stop_reason: "end_turn" },
+      usage: { output_tokens: usage.output_tokens },
+    } as MessagesStreamEventData,
     state,
   );
 
-  const stopEvents = translateAnthropicEventToResponsesEvents(
-    { type: "message_stop" } as AnthropicStreamEventData,
+  const stopEvents = translateMessagesEventToResponsesEvents(
+    { type: "message_stop" } as MessagesStreamEventData,
     state,
   );
 
@@ -61,7 +76,10 @@ function runToCompletion(usage: {
   if (!completed || completed.type !== "response.completed") {
     throw new Error("Expected response.completed event");
   }
-  return (completed as { type: "response.completed"; response: ResponsesResult }).response;
+  return (completed as {
+    type: "response.completed";
+    response: ResponsesResult;
+  }).response;
 }
 
 // ── cache_creation_input_tokens ──

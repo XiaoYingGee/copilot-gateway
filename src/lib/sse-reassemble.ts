@@ -7,9 +7,9 @@
 
 import { parseSSEStream } from "./sse.ts";
 import type {
-  AnthropicAssistantContentBlock,
-  AnthropicResponse,
-} from "./anthropic-types.ts";
+  MessagesAssistantContentBlock,
+  MessagesResponse,
+} from "./messages-types.ts";
 import type {
   ChatCompletionResponse,
   ChoiceNonStreaming,
@@ -23,18 +23,18 @@ export function isSSEResponse(resp: Response): boolean {
   return ct.includes("text/event-stream");
 }
 
-// ── Anthropic Messages SSE → AnthropicResponse ──
+// ── Messages SSE → MessagesResponse ──
 
-export async function reassembleAnthropicSSE(
+export async function reassembleMessagesSSE(
   body: ReadableStream<Uint8Array>,
-): Promise<AnthropicResponse> {
+): Promise<MessagesResponse> {
   let id = "";
   let model = "";
-  let usage: AnthropicResponse["usage"] = {
+  let usage: MessagesResponse["usage"] = {
     input_tokens: 0,
     output_tokens: 0,
   };
-  let stopReason: AnthropicResponse["stop_reason"] = null;
+  let stopReason: MessagesResponse["stop_reason"] = null;
   let stopSequence: string | null = null;
 
   // Accumulator per content block index
@@ -74,7 +74,8 @@ export async function reassembleAnthropicSSE(
           input_tokens: (u.input_tokens as number) ?? 0,
           output_tokens: (u.output_tokens as number) ?? 0,
           ...(u.cache_creation_input_tokens != null && {
-            cache_creation_input_tokens: u.cache_creation_input_tokens as number,
+            cache_creation_input_tokens: u
+              .cache_creation_input_tokens as number,
           }),
           ...(u.cache_read_input_tokens != null && {
             cache_read_input_tokens: u.cache_read_input_tokens as number,
@@ -141,7 +142,7 @@ export async function reassembleAnthropicSSE(
     } else if (type === "message_delta") {
       const delta = event.delta as Record<string, unknown>;
       if (delta.stop_reason != null) {
-        stopReason = delta.stop_reason as AnthropicResponse["stop_reason"];
+        stopReason = delta.stop_reason as MessagesResponse["stop_reason"];
       }
       if ("stop_sequence" in delta) {
         stopSequence = delta.stop_sequence as string | null;
@@ -152,8 +153,8 @@ export async function reassembleAnthropicSSE(
           usage.output_tokens = u.output_tokens as number;
         }
         if (u.cache_creation_input_tokens != null) {
-          usage.cache_creation_input_tokens =
-            u.cache_creation_input_tokens as number;
+          usage.cache_creation_input_tokens = u
+            .cache_creation_input_tokens as number;
         }
         if (u.cache_read_input_tokens != null) {
           usage.cache_read_input_tokens = u.cache_read_input_tokens as number;
@@ -170,7 +171,7 @@ export async function reassembleAnthropicSSE(
   }
 
   // Build final content blocks
-  const content: AnthropicAssistantContentBlock[] = [];
+  const content: MessagesAssistantContentBlock[] = [];
   for (const b of blocks) {
     if (!b) continue;
     if (b.type === "text") {
@@ -276,8 +277,9 @@ export async function reassembleChatCompletionsSSE(
               id: (tc.id as string) ?? "",
               name: (tc.function as Record<string, unknown>)?.name as string ??
                 "",
-              arguments: (tc.function as Record<string, unknown>)?.arguments as
-                  string ?? "",
+              arguments:
+                (tc.function as Record<string, unknown>)?.arguments as string ??
+                  "",
             });
           } else {
             if (tc.id) existing.id = tc.id as string;
@@ -291,8 +293,8 @@ export async function reassembleChatCompletionsSSE(
       }
 
       if (choice.finish_reason) {
-        finishReason =
-          choice.finish_reason as ChoiceNonStreaming["finish_reason"];
+        finishReason = choice
+          .finish_reason as ChoiceNonStreaming["finish_reason"];
       }
     }
   }

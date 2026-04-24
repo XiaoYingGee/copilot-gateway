@@ -1,8 +1,8 @@
 import { copilotFetch } from "../../../lib/copilot.ts";
 import type {
-  AnthropicMessagesTargetPayload,
-  AnthropicResponse,
-} from "../../../lib/anthropic-types.ts";
+  MessagesResponse,
+  MessagesTargetPayload,
+} from "../../../lib/messages-types.ts";
 import { isSSEResponse } from "../../../lib/sse-reassemble.ts";
 import { readUpstreamError } from "../../shared/errors/upstream-error.ts";
 import {
@@ -16,18 +16,17 @@ import { runTargetInterceptors } from "../run-interceptors.ts";
 import type { EmitInput, EmitResult } from "../emit-types.ts";
 import { messagesTargetInterceptors } from "./interceptors/index.ts";
 
-export interface EmitToMessagesInput
-  extends EmitInput<AnthropicMessagesTargetPayload> {
+export interface EmitToMessagesInput extends EmitInput<MessagesTargetPayload> {
   rawBeta?: string;
 }
 
 export const emitToMessages = async (
   input: EmitToMessagesInput,
-): Promise<EmitResult<AnthropicResponse>> => {
+): Promise<EmitResult<MessagesResponse>> => {
   try {
     input.payload.stream = true;
 
-    return await runTargetInterceptors<EmitToMessagesInput, AnthropicResponse>(
+    return await runTargetInterceptors<EmitToMessagesInput, MessagesResponse>(
       input,
       messagesTargetInterceptors,
       async () => {
@@ -59,7 +58,7 @@ export const emitToMessages = async (
         }
 
         return eventResult((async function* () {
-          yield jsonFrame(await response.json() as AnthropicResponse);
+          yield jsonFrame(await response.json() as MessagesResponse);
         })());
       },
     );

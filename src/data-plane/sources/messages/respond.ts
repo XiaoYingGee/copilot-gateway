@@ -1,9 +1,9 @@
 import type { Context } from "hono";
 import type { InternalDebugError } from "../../shared/errors/internal-debug-error.ts";
-import type { AnthropicResponse } from "../../../lib/anthropic-types.ts";
+import type { MessagesResponse } from "../../../lib/messages-types.ts";
 import {
-  collectAnthropicEventsToResponse,
-  expandAnthropicFrames,
+  collectMessagesEventsToResponse,
+  expandMessagesFrames,
 } from "./collect/from-events.ts";
 import { messagesSourceInterceptors } from "./interceptors/index.ts";
 import { runSourceInterceptors } from "../run-interceptors.ts";
@@ -30,7 +30,7 @@ const internalMessagesErrorResponse = (
 
 export const respondMessages = async (
   c: Context,
-  initialResult: StreamExecuteResult<AnthropicResponse>,
+  initialResult: StreamExecuteResult<MessagesResponse>,
   wantsStream: boolean,
 ): Promise<Response> => {
   const result = await runSourceInterceptors(
@@ -47,6 +47,6 @@ export const respondMessages = async (
   }
 
   return wantsStream
-    ? proxySSE(c, expandAnthropicFrames(result.events))
-    : Response.json(await collectAnthropicEventsToResponse(result.events));
+    ? proxySSE(c, expandMessagesFrames(result.events))
+    : Response.json(await collectMessagesEventsToResponse(result.events));
 };

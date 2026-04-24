@@ -1,13 +1,13 @@
-import type { AnthropicResponse } from "../../../lib/anthropic-types.ts";
+import type { MessagesResponse } from "../../../lib/messages-types.ts";
 import type {
   ResponsesResult,
   ResponseStreamEvent,
 } from "../../../lib/responses-types.ts";
-import { translateResponsesToAnthropic } from "../../../lib/translate/responses.ts";
+import { translateResponsesToMessagesResponse } from "../../../lib/translate/responses-to-messages.ts";
 import {
-  createResponsesStreamState,
-  translateResponsesStreamEvent,
-} from "../../../lib/translate/responses-stream.ts";
+  createResponsesToMessagesStreamState,
+  translateResponsesStreamEventToMessagesEvents,
+} from "../../../lib/translate/responses-to-messages-stream.ts";
 import {
   jsonFrame,
   sseFrame,
@@ -16,8 +16,8 @@ import {
 
 export const translateToSourceEvents = async function* (
   frames: AsyncIterable<StreamFrame<ResponsesResult>>,
-): AsyncGenerator<StreamFrame<AnthropicResponse>> {
-  const state = createResponsesStreamState();
+): AsyncGenerator<StreamFrame<MessagesResponse>> {
+  const state = createResponsesToMessagesStreamState();
   let sawStructuredOutput = false;
   let streamingCommitted = false;
   const pendingFrames: Array<ReturnType<typeof sseFrame>> = [];
@@ -25,7 +25,7 @@ export const translateToSourceEvents = async function* (
   for await (const frame of frames) {
     if (frame.type === "json") {
       if (!streamingCommitted) pendingFrames.length = 0;
-      yield jsonFrame(translateResponsesToAnthropic(frame.data));
+      yield jsonFrame(translateResponsesToMessagesResponse(frame.data));
       continue;
     }
 
@@ -70,13 +70,21 @@ export const translateToSourceEvents = async function* (
     ) {
       pendingFrames.length = 0;
       yield jsonFrame(
-        translateResponsesToAnthropic(event.response as ResponsesResult),
+        translateResponsesToMessagesResponse(event.response as ResponsesResult),
       );
       continue;
     }
 
-    for (const translated of translateResponsesStreamEvent(event, state)) {
-      const translatedFrame = sseFrame(JSON.stringify(translated), translated.type);
+    for (
+      const translated of translateResponsesStreamEventToMessagesEvents(
+        event,
+        state,
+      )
+    ) {
+      const translatedFrame = sseFrame(
+        JSON.stringify(translated),
+        translated.type,
+      );
       if (streamingCommitted) {
         yield translatedFrame;
       } else {
