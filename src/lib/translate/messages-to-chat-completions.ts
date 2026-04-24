@@ -14,9 +14,10 @@ import type {
   MessagesPayload,
   MessagesRedactedThinkingBlock,
   MessagesResponse,
+  MessagesServerToolUseBlock,
   MessagesTextBlock,
-  MessagesThinkingBlock,
   MessagesToolResultBlock,
+  MessagesWebSearchToolResultBlock,
   MessagesToolUseBlock,
   MessagesUserContentBlock,
   MessagesUserMessage,
@@ -73,6 +74,70 @@ const toChatCompletionsToolResultContent = (
   return JSON.stringify(content);
 };
 
+const toChatCompletionsFunctionCall = (
+  block: MessagesToolUseBlock | MessagesServerToolUseBlock,
+): ToolCall => ({
+  id: block.id,
+  type: "function",
+  function: {
+    name: block.name,
+    arguments: JSON.stringify(block.input),
+  },
+});
+
+const toChatCompletionsStructuredToolOutput = (
+  block: MessagesWebSearchToolResultBlock,
+): string => JSON.stringify(block.content);
+
+type PendingAssistantMessage = {
+  textParts: string[];
+  toolCalls: ToolCall[];
+  reasoningTextParts: string[];
+  reasoningOpaque: string;
+  hasReasoningOpaque: boolean;
+  hasThinkingReasoningOpaque: boolean;
+};
+
+const createPendingAssistantMessage = (): PendingAssistantMessage => ({
+  textParts: [],
+  toolCalls: [],
+  reasoningTextParts: [],
+  reasoningOpaque: "",
+  hasReasoningOpaque: false,
+  hasThinkingReasoningOpaque: false,
+});
+
+const flushPendingAssistantMessage = (
+  messages: Message[],
+  pending: PendingAssistantMessage,
+): void => {
+  if (
+    pending.textParts.length === 0 && pending.toolCalls.length === 0 &&
+    pending.reasoningTextParts.length === 0 && !pending.hasReasoningOpaque
+  ) {
+    return;
+  }
+
+  messages.push({
+    role: "assistant",
+    content: pending.textParts.join("\n\n") || null,
+    ...(pending.toolCalls.length > 0 ? { tool_calls: [...pending.toolCalls] } : {}),
+    ...(pending.reasoningTextParts.length > 0
+      ? { reasoning_text: pending.reasoningTextParts.join("\n\n") }
+      : {}),
+    ...(pending.hasReasoningOpaque
+      ? { reasoning_opaque: pending.reasoningOpaque }
+      : {}),
+  });
+
+  pending.textParts.length = 0;
+  pending.toolCalls.length = 0;
+  pending.reasoningTextParts.length = 0;
+  pending.reasoningOpaque = "";
+  pending.hasReasoningOpaque = false;
+  pending.hasThinkingReasoningOpaque = false;
+};
+
 const getClientTools = (
   tools?: MessagesPayload["tools"],
 ): MessagesClientTool[] | undefined => {
@@ -123,47 +188,51 @@ const translateMessagesAssistant = (
     }];
   }
 
-  const toolUses = message.content.filter((block): block is MessagesToolUseBlock =>
-    block.type === "tool_use"
-  );
-  const textBlocks = message.content.filter((block): block is MessagesTextBlock =>
-    block.type === "text"
-  );
-  const thinkingBlocks = message.content.filter((block): block is MessagesThinkingBlock =>
-    block.type === "thinking"
-  );
-  const preservedUnsupportedHistory = message.content.filter((block) =>
-    block.type === "server_tool_use" || block.type === "web_search_tool_result"
-  );
+  const messages: Message[] = [];
+  const pending = createPendingAssistantMessage();
 
-  const content = [
-    textBlocks.map((block) => block.text).join("\n\n"),
-    preservedUnsupportedHistory.length > 0
-      ? JSON.stringify(preservedUnsupportedHistory)
-      : "",
-  ].filter((chunk) => chunk.length > 0).join("\n\n") || null;
-  const reasoningText = thinkingBlocks.map((block) => block.thinking).join("\n\n") || null;
-  const reasoningOpaque = thinkingBlocks.find((block) => block.signature)?.signature ?? null;
-  const baseMessage = {
-    role: "assistant" as const,
-    content,
-    reasoning_text: reasoningText,
-    reasoning_opaque: reasoningOpaque,
-  };
+  for (const block of message.content) {
+    if (block.type === "text") {
+      pending.textParts.push(block.text);
+      continue;
+    }
 
-  return toolUses.length > 0
-    ? [{
-      ...baseMessage,
-      tool_calls: toolUses.map((toolUse) => ({
-        id: toolUse.id,
-        type: "function" as const,
-        function: {
-          name: toolUse.name,
-          arguments: JSON.stringify(toolUse.input),
-        },
-      })),
-    }]
-    : [baseMessage];
+    if (block.type === "thinking") {
+      pending.reasoningTextParts.push(block.thinking);
+      if (
+        Object.hasOwn(block, "signature") &&
+        !pending.hasThinkingReasoningOpaque
+      ) {
+        pending.reasoningOpaque = block.signature as string;
+        pending.hasReasoningOpaque = true;
+        pending.hasThinkingReasoningOpaque = true;
+      }
+      continue;
+    }
+
+    if (block.type === "redacted_thinking") {
+      if (pending.reasoningTextParts.length === 0 && !pending.hasReasoningOpaque) {
+        pending.reasoningOpaque = (block as MessagesRedactedThinkingBlock).data;
+        pending.hasReasoningOpaque = true;
+      }
+      continue;
+    }
+
+    if (block.type === "tool_use" || block.type === "server_tool_use") {
+      pending.toolCalls.push(toChatCompletionsFunctionCall(block));
+      continue;
+    }
+
+    flushPendingAssistantMessage(messages, pending);
+    messages.push({
+      role: "tool",
+      tool_call_id: block.tool_use_id,
+      content: toChatCompletionsStructuredToolOutput(block),
+    });
+  }
+
+  flushPendingAssistantMessage(messages, pending);
+  return messages;
 };
 
 const translateMessagesInput = (
@@ -270,8 +339,10 @@ export const translateMessagesToChatCompletionsResponse = (
   const textParts: string[] = [];
   const toolCalls: ToolCall[] = [];
   const preservedUnsupportedHistory: MessagesAssistantContentBlock[] = [];
-  let reasoningText: string | undefined;
+  const reasoningTextParts: string[] = [];
   let reasoningOpaque: string | undefined;
+  let hasReasoningOpaque = false;
+  let hasThinkingReasoningOpaque = false;
 
   for (const block of response.content) {
     switch (block.type) {
@@ -289,14 +360,20 @@ export const translateMessagesToChatCompletionsResponse = (
         });
         break;
       case "thinking":
-        if (!reasoningText) {
-          reasoningText = block.thinking;
-          if (block.signature) reasoningOpaque = block.signature;
+        reasoningTextParts.push(block.thinking);
+        if (
+          Object.hasOwn(block, "signature") &&
+          !hasThinkingReasoningOpaque
+        ) {
+          reasoningOpaque = block.signature as string;
+          hasReasoningOpaque = true;
+          hasThinkingReasoningOpaque = true;
         }
         break;
       case "redacted_thinking":
-        if (!reasoningText && !reasoningOpaque) {
+        if (reasoningTextParts.length === 0 && !hasReasoningOpaque) {
           reasoningOpaque = (block as MessagesRedactedThinkingBlock).data;
+          hasReasoningOpaque = true;
         }
         break;
       case "server_tool_use":
@@ -309,6 +386,10 @@ export const translateMessagesToChatCompletionsResponse = (
   if (preservedUnsupportedHistory.length > 0) {
     textParts.push(JSON.stringify(preservedUnsupportedHistory));
   }
+
+  const reasoningText = reasoningTextParts.length > 0
+    ? reasoningTextParts.join("\n\n")
+    : undefined;
 
   const promptTokens =
     response.usage.input_tokens +
@@ -328,7 +409,7 @@ export const translateMessagesToChatCompletionsResponse = (
         content: textParts.join("") || null,
         ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
         ...(reasoningText ? { reasoning_text: reasoningText } : {}),
-        ...(reasoningOpaque ? { reasoning_opaque: reasoningOpaque } : {}),
+        ...(hasReasoningOpaque ? { reasoning_opaque: reasoningOpaque } : {}),
       },
       finish_reason: mapMessagesStopReasonToChatCompletionsFinishReason(
         response.stop_reason,

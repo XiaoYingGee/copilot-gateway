@@ -5,11 +5,15 @@ import {
   type MessagesClientTool,
   type MessagesMessage,
   type MessagesPayload,
+  type MessagesRedactedThinkingBlock,
   type MessagesResponse,
+  type MessagesServerToolUseBlock,
   type MessagesTextBlock,
   type MessagesToolResultBlock,
+  type MessagesToolUseBlock,
   type MessagesUserContentBlock,
   type MessagesUserMessage,
+  type MessagesWebSearchToolResultBlock,
 } from "../messages-types.ts";
 import {
   getMessagesRequestedReasoningEffort,
@@ -68,6 +72,25 @@ const toResponsesToolResultOutput = (
   return JSON.stringify(content);
 };
 
+const toResponsesFunctionCall = (
+  block: MessagesToolUseBlock | MessagesServerToolUseBlock,
+): ResponseInputItem => ({
+  type: "function_call",
+  call_id: block.id,
+  name: block.name,
+  arguments: JSON.stringify(block.input),
+  status: "completed",
+});
+
+const toResponsesStructuredToolOutput = (
+  block: MessagesWebSearchToolResultBlock,
+): Extract<ResponseInputItem, { type: "function_call_output" }> => ({
+  type: "function_call_output",
+  call_id: block.tool_use_id,
+  output: JSON.stringify(block.content),
+  status: Array.isArray(block.content) ? "completed" : "incomplete",
+});
+
 const getClientTools = (
   tools?: MessagesPayload["tools"],
 ): MessagesClientTool[] | undefined => {
@@ -118,27 +141,17 @@ const translateAssistantMessage = (
 
   const input: ResponseInputItem[] = [];
   const pendingContent: ResponseInputContent[] = [];
-  const preservedUnsupportedHistory = message.content.filter((block) =>
-    block.type === "server_tool_use" || block.type === "web_search_tool_result"
-  );
-
-  if (preservedUnsupportedHistory.length > 0) {
-    pendingContent.push({
-      type: "output_text",
-      text: JSON.stringify(preservedUnsupportedHistory),
-    });
-  }
 
   for (const block of message.content) {
-    if (block.type === "tool_use") {
+    if (block.type === "tool_use" || block.type === "server_tool_use") {
       flushPendingContent(pendingContent, input, "assistant");
-      input.push({
-        type: "function_call",
-        call_id: block.id,
-        name: block.name,
-        arguments: JSON.stringify(block.input),
-        status: "completed",
-      });
+      input.push(toResponsesFunctionCall(block));
+      continue;
+    }
+
+    if (block.type === "web_search_tool_result") {
+      flushPendingContent(pendingContent, input, "assistant");
+      input.push(toResponsesStructuredToolOutput(block));
       continue;
     }
 
@@ -154,7 +167,20 @@ const translateAssistantMessage = (
         summary: summaryText
           ? [{ type: "summary_text", text: summaryText }]
           : [],
-        encrypted_content: block.signature ?? "",
+        ...(Object.hasOwn(block, "signature")
+          ? { encrypted_content: block.signature }
+          : {}),
+      });
+      continue;
+    }
+
+    if (block.type === "redacted_thinking") {
+      flushPendingContent(pendingContent, input, "assistant");
+      input.push({
+        type: "reasoning",
+        id: makeResponsesReasoningId(input.length),
+        summary: [],
+        encrypted_content: (block as MessagesRedactedThinkingBlock).data,
       });
       continue;
     }
@@ -283,10 +309,20 @@ export const translateMessagesToResponsesResult = (
           summary: summaryText
             ? [{ type: "summary_text", text: summaryText }]
             : [],
-          encrypted_content: block.signature || undefined,
+          ...(Object.hasOwn(block, "signature")
+            ? { encrypted_content: block.signature }
+            : {}),
         } as ResponseOutputReasoning);
         break;
       }
+      case "redacted_thinking":
+        output.push({
+          type: "reasoning",
+          id: makeResponsesReasoningId(output.length),
+          summary: [],
+          encrypted_content: (block as MessagesRedactedThinkingBlock).data,
+        } as ResponseOutputReasoning);
+        break;
       case "text":
         textParts.push(block.text);
         break;
