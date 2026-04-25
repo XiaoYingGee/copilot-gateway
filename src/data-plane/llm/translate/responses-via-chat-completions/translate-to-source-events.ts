@@ -1,53 +1,43 @@
 import type {
   ChatCompletionChunk,
-  ChatCompletionResponse,
 } from "../../../../lib/chat-completions-types.ts";
-import type { ResponsesResult } from "../../../../lib/responses-types.ts";
 import {
   createChatCompletionsToResponsesStreamState,
   flushChatCompletionsToResponsesEvents,
   translateChatCompletionsChunkToResponsesEvents,
-  translateChatCompletionToResponsesResult,
 } from "../../../../lib/translate/chat-completions-to-responses.ts";
-import {
-  jsonFrame,
-  sseFrame,
-  type StreamFrame,
-} from "../../shared/stream/types.ts";
+import { eventFrame, type ProtocolFrame } from "../../shared/stream/types.ts";
+import type { SourceResponseStreamEvent } from "../../sources/responses/events/to-sse.ts";
 
 export const translateToSourceEvents = async function* (
-  frames: AsyncIterable<StreamFrame<ChatCompletionResponse>>,
-): AsyncGenerator<StreamFrame<ResponsesResult>> {
+  frames: AsyncIterable<ProtocolFrame<ChatCompletionChunk>>,
+): AsyncGenerator<ProtocolFrame<SourceResponseStreamEvent>> {
   const state = createChatCompletionsToResponsesStreamState();
+  let sawDone = false;
 
   for await (const frame of frames) {
-    if (frame.type === "json") {
-      yield jsonFrame(translateChatCompletionToResponsesResult(frame.data));
-      continue;
-    }
-
-    const data = frame.data.trim();
-    if (!data || data === "[DONE]") continue;
-
-    let chunk: ChatCompletionChunk;
-
-    try {
-      chunk = JSON.parse(data) as ChatCompletionChunk;
-    } catch {
-      continue;
+    if (frame.type === "done") {
+      sawDone = true;
+      break;
     }
 
     for (
       const event of translateChatCompletionsChunkToResponsesEvents(
-        chunk,
+        frame.event,
         state,
       )
     ) {
-      yield sseFrame(JSON.stringify(event), event.type);
+      yield eventFrame(event);
     }
   }
 
+  if (!sawDone) {
+    throw new Error(
+      "Upstream Chat Completions stream ended without a DONE sentinel.",
+    );
+  }
+
   for (const event of flushChatCompletionsToResponsesEvents(state)) {
-    yield sseFrame(JSON.stringify(event), event.type);
+    yield eventFrame(event);
   }
 };

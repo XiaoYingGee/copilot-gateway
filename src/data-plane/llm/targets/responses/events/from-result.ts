@@ -6,16 +6,11 @@ import type {
   ResponsesResult,
   ResponseStreamEvent,
 } from "../../../../../lib/responses-types.ts";
-import { reassembleResponsesSSE } from "../../../../../lib/sse-reassemble.ts";
-import {
-  collectSSE,
-  sseFramesToStream,
-} from "../../../shared/stream/collect-sse.ts";
-import {
-  type SseFrame,
-  sseFrame,
-  type StreamFrame,
-} from "../../../shared/stream/types.ts";
+import { type EventFrame, eventFrame } from "../../../shared/stream/types.ts";
+
+export type SequencedResponseStreamEvent = ResponseStreamEvent & {
+  sequence_number: number;
+};
 
 const getTerminalEventName = (response: ResponsesResult): string => {
   if (response.status === "failed") return "response.failed";
@@ -230,13 +225,12 @@ const responseOutputItemEvents = (
   if (item.type === "reasoning") {
     return responseReasoningEvents(item, outputIndex);
   }
-
   return responseFunctionCallEvents(item, outputIndex);
 };
 
-export const responsesResultToSSEFrames = (
+export const responsesResultToEvents = (
   response: ResponsesResult,
-): SseFrame[] => {
+): EventFrame<SequencedResponseStreamEvent>[] => {
   const started = responseStartSnapshot(response);
   const events: ResponseStreamEvent[] = [
     { type: "response.created", response: started },
@@ -246,29 +240,6 @@ export const responsesResultToSSEFrames = (
   ];
 
   return events.map((event, sequenceNumber) =>
-    sseFrame(
-      JSON.stringify({ ...event, sequence_number: sequenceNumber }),
-      event.type,
-    )
+    eventFrame({ ...event, sequence_number: sequenceNumber })
   );
-};
-
-export const expandResponsesFrames = async function* (
-  frames: AsyncIterable<StreamFrame<ResponsesResult>>,
-): AsyncGenerator<SseFrame> {
-  for await (const frame of frames) {
-    if (frame.type === "sse") {
-      yield frame;
-      continue;
-    }
-
-    yield* responsesResultToSSEFrames(frame.data);
-  }
-};
-
-export const collectResponsesEventsToResult = async (
-  frames: AsyncIterable<StreamFrame<ResponsesResult>>,
-): Promise<ResponsesResult> => {
-  const collected = await collectSSE(expandResponsesFrames(frames));
-  return await reassembleResponsesSSE(sseFramesToStream(collected));
 };

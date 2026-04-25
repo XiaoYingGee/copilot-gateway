@@ -1,0 +1,34 @@
+import { assertRejects } from "@std/assert";
+import type { ChatCompletionChunk } from "../../../../lib/chat-completions-types.ts";
+import { eventFrame } from "../../shared/stream/types.ts";
+import { translateToSourceEvents } from "./translate-to-source-events.ts";
+
+const drain = async <T>(frames: AsyncIterable<T>): Promise<void> => {
+  for await (const _frame of frames) {
+    // Exhaust the stream so async translator errors surface to the caller.
+  }
+};
+
+Deno.test("translateToSourceEvents rejects Chat streams without DONE", async () => {
+  async function* stream() {
+    yield eventFrame(
+      {
+        id: "chatcmpl_truncated",
+        object: "chat.completion.chunk",
+        created: 123,
+        model: "gpt-test",
+        choices: [{
+          index: 0,
+          delta: { role: "assistant", content: "partial" },
+          finish_reason: "stop",
+        }],
+      } satisfies ChatCompletionChunk,
+    );
+  }
+
+  await assertRejects(
+    async () => await drain(translateToSourceEvents(stream())),
+    Error,
+    "Upstream Chat Completions stream ended without a DONE sentinel.",
+  );
+});

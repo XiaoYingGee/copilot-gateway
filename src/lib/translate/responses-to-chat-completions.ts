@@ -591,7 +591,7 @@ const flushDeferredEvents = (
         event,
         state,
       );
-      if (translated !== "DONE") chunks.push(...translated);
+      chunks.push(...translated);
     }
   }
 
@@ -601,7 +601,7 @@ const flushDeferredEvents = (
 export const translateResponsesEventToChatCompletionsChunks = (
   event: ResponseStreamEvent,
   state: ResponsesToChatCompletionsStreamState,
-): ChatCompletionChunk[] | "DONE" => {
+): ChatCompletionChunk[] => {
   if (state.done) return [];
   if (shouldDeferForEarlierReasoning(event, state)) {
     state.outputOrder.deferredEvents.push(event);
@@ -740,6 +740,20 @@ export const translateResponsesEventToChatCompletionsChunks = (
 
       state.emittedTextContentKeys.add(key);
       return [makeChunk(state, { content: text })];
+    }
+
+    case "response.content_part.done": {
+      const { part, output_index, content_index } = event as Extract<
+        ResponseStreamEvent,
+        { type: "response.content_part.done" }
+      >;
+      if (part.type !== "refusal") return [];
+
+      const key = responsePartKey(output_index, content_index);
+      if (!part.refusal || state.emittedTextContentKeys.has(key)) return [];
+
+      state.emittedTextContentKeys.add(key);
+      return [makeChunk(state, { content: part.refusal })];
     }
 
     case "response.function_call_arguments.delta": {

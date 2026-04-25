@@ -53,6 +53,11 @@ type ResponseOutputTextDoneEvent = Extract<
   { type: "response.output_text.done" }
 >;
 
+type ResponseContentPartDoneEvent = Extract<
+  ResponseStreamEvent,
+  { type: "response.content_part.done" }
+>;
+
 type ResponseFunctionCallArgumentsDeltaEvent = Extract<
   ResponseStreamEvent,
   { type: "response.function_call_arguments.delta" }
@@ -435,6 +440,32 @@ const handleTextDone = (
   return events;
 };
 
+const handleContentPartDone = (
+  event: ResponseContentPartDoneEvent,
+  state: ResponsesToMessagesStreamState,
+): MessagesStreamEventData[] => {
+  if (event.part.type !== "refusal") return [];
+
+  const key = responsePartKey(event.output_index, event.content_index);
+  if (!event.part.refusal || state.emittedTextContentKeys.has(key)) return [];
+
+  const events: MessagesStreamEventData[] = [];
+  const blockIndex = openTextBlock(
+    state,
+    event.output_index,
+    event.content_index,
+    events,
+  );
+  events.push({
+    type: "content_block_delta",
+    index: blockIndex,
+    delta: { type: "text_delta", text: event.part.refusal },
+  });
+  state.blockHasDelta.add(blockIndex);
+  state.emittedTextContentKeys.add(key);
+  return events;
+};
+
 const handleFunctionArgumentsDelta = (
   event: ResponseFunctionCallArgumentsDeltaEvent,
   state: ResponsesToMessagesStreamState,
@@ -646,6 +677,11 @@ export const translateResponsesStreamEventToMessagesEvents = (
       return handleTextDelta(event as ResponseOutputTextDeltaEvent, state);
     case "response.output_text.done":
       return handleTextDone(event as ResponseOutputTextDoneEvent, state);
+    case "response.content_part.done":
+      return handleContentPartDone(
+        event as ResponseContentPartDoneEvent,
+        state,
+      );
     case "response.function_call_arguments.delta":
       return handleFunctionArgumentsDelta(
         event as ResponseFunctionCallArgumentsDeltaEvent,

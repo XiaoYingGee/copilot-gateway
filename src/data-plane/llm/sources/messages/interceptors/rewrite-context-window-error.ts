@@ -1,4 +1,4 @@
-import type { MessagesResponse } from "../../../../../lib/messages-types.ts";
+import type { MessagesStreamEventData } from "../../../../../lib/messages-types.ts";
 import type { StreamExecuteResult } from "../../../shared/errors/result.ts";
 
 const isContextWindowError = (text: string): boolean =>
@@ -20,8 +20,8 @@ const isContextWindowError = (text: string): boolean =>
  * - https://docs.claude.com/en/docs/claude-code/common-workflows#prompt-too-long
  */
 export const rewriteContextWindowError = (
-  result: StreamExecuteResult<MessagesResponse>,
-): StreamExecuteResult<MessagesResponse> => {
+  result: StreamExecuteResult<MessagesStreamEventData>,
+): StreamExecuteResult<MessagesStreamEventData> => {
   if (result.type !== "upstream-error") return result;
 
   const body = new TextDecoder().decode(result.body);

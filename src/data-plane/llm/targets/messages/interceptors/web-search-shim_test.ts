@@ -10,17 +10,24 @@ import type {
   MessagesUserContentBlock,
 } from "../../../../../lib/messages-types.ts";
 import {
-  collectMessagesEventsToResponse,
-  expandMessagesFrames,
-  messagesResponseToSSEFrames,
-} from "../../../sources/messages/collect/from-events.ts";
-import { collectSSE } from "../../../shared/stream/collect-sse.ts";
+  collectMessagesProtocolEventsToResponse,
+} from "../../../sources/messages/events/to-response.ts";
+import {
+  messagesProtocolEventsToSSEFrames,
+  messagesProtocolEventToSSEFrame,
+} from "../../../sources/messages/events/to-sse.ts";
 import { type WebSearchProvider } from "../../../../tools/web-search/provider.ts";
 import { DEFAULT_SEARCH_CONFIG } from "../../../../tools/web-search/search-config.ts";
 import type { WebSearchProviderResult } from "../../../../tools/web-search/types.ts";
 import { InMemoryRepo } from "../../../../../repo/memory.ts";
 import { initRepo } from "../../../../../repo/index.ts";
-import { jsonFrame } from "../../../shared/stream/types.ts";
+import {
+  jsonFrame,
+  type SseFrame,
+  type StreamFrame,
+} from "../../../shared/stream/types.ts";
+import { messagesResultToEvents } from "../events/from-result.ts";
+import { messagesStreamFramesToEvents } from "../events/from-stream.ts";
 import {
   collectAndRewriteMessagesWebSearchEventsToNative,
   decodeWebSearchCitationPayload,
@@ -160,6 +167,31 @@ const toAsyncIterable = async function* <T>(
     yield value;
   }
 };
+
+const collect = async <T>(events: AsyncIterable<T>): Promise<T[]> => {
+  const collected: T[] = [];
+
+  for await (const event of events) {
+    collected.push(event);
+  }
+
+  return collected;
+};
+
+const messagesResponseToSSEFrames = (
+  response: MessagesResponse,
+): SseFrame[] =>
+  messagesResultToEvents(response).flatMap((frame) => {
+    const sse = messagesProtocolEventToSSEFrame(frame);
+    return sse ? [sse] : [];
+  });
+
+const collectRawMessagesFramesToResponse = async (
+  frames: AsyncIterable<StreamFrame<MessagesResponse>>,
+): Promise<MessagesResponse> =>
+  await collectMessagesProtocolEventsToResponse(
+    messagesStreamFramesToEvents(frames),
+  );
 
 Deno.test("web search shim payload codecs use minimal cgws1 payloads", () => {
   const encryptedContent = encodeWebSearchResultPayload({
@@ -813,7 +845,7 @@ Deno.test("collectAndRewriteMessagesWebSearchEventsToNative rewrites collected S
     activeProvider(fakeProviderOk),
   );
 
-  const rewritten = await collectMessagesEventsToResponse(frames);
+  const rewritten = await collectRawMessagesFramesToResponse(frames);
 
   assertEquals(rewritten.stop_reason, "pause_turn");
   assertEquals(rewritten.content[0].type, "server_tool_use");
@@ -921,7 +953,7 @@ Deno.test("withMessagesWebSearchShim allows replay-only history when the search 
   assertEquals(result.type, "events");
   if (result.type !== "events") throw new Error("expected events result");
 
-  const rewritten = await collectMessagesEventsToResponse(result.events);
+  const rewritten = await collectRawMessagesFramesToResponse(result.events);
   const textBlock = rewritten.content[0] as MessagesTextBlock;
   assertEquals(textBlock.citations?.[0]?.type, "web_search_result_location");
 });
@@ -970,7 +1002,11 @@ Deno.test("withMessagesWebSearchShim emits native-like citation deltas for repla
   assertEquals(result.type, "events");
   if (result.type !== "events") throw new Error("expected events result");
 
-  const frames = await collectSSE(expandMessagesFrames(result.events));
+  const frames = await collect(
+    messagesProtocolEventsToSSEFrames(
+      messagesStreamFramesToEvents(result.events),
+    ),
+  );
   const citationFrame = frames.find((frame) => {
     if (frame.type !== "sse" || frame.event !== "content_block_delta") {
       return false;

@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import type {
   MessagesPayload,
-  MessagesResponse,
+  MessagesStreamEventData,
 } from "../../../../lib/messages-types.ts";
 import { getGithubCredentials } from "../../../../lib/github.ts";
 import { normalizeMessagesRequest } from "./normalize/request.ts";
@@ -19,14 +19,14 @@ import {
   type StreamExecuteResult,
 } from "../../shared/errors/result.ts";
 import { toInternalDebugError } from "../../shared/errors/internal-debug-error.ts";
-import type { StreamFrame } from "../../shared/stream/types.ts";
+import type { ProtocolFrame } from "../../shared/stream/types.ts";
 
 const withTranslatedEvents = <T>(
   result: StreamExecuteResult<T>,
   translate: (
-    events: AsyncIterable<StreamFrame<T>>,
-  ) => AsyncIterable<StreamFrame<MessagesResponse>>,
-): StreamExecuteResult<MessagesResponse> =>
+    events: AsyncIterable<ProtocolFrame<T>>,
+  ) => AsyncIterable<ProtocolFrame<MessagesStreamEventData>>,
+): StreamExecuteResult<MessagesStreamEventData> =>
   result.type === "events"
     ? { type: "events", events: translate(result.events) }
     : result;

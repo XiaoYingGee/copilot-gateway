@@ -1,4 +1,9 @@
-import { assertEquals, assertExists, assertFalse } from "@std/assert";
+import {
+  assertEquals,
+  assertExists,
+  assertFalse,
+  assertStringIncludes,
+} from "@std/assert";
 import type { ResponsesResult } from "../../../../lib/responses-types.ts";
 import type { SearchConfig } from "../../../tools/web-search/types.ts";
 import {
@@ -819,6 +824,69 @@ Deno.test("/v1/messages native streaming filters trailing DONE sentinel", async 
     assertEquals(events.length, 2);
     assertEquals(events[0].event, "message_start");
     assertEquals(events[1].event, "message_stop");
+  });
+});
+
+Deno.test("/v1/messages streams malformed upstream Messages SSE as an error event", async () => {
+  const { apiKey } = await setupAppTest();
+
+  await withMockedFetch((request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        {
+          id: "claude-malformed-messages",
+          supported_endpoints: ["/v1/messages"],
+        },
+      ]));
+    }
+    if (url.pathname === "/v1/messages") {
+      return new Response("event: message_delta\ndata: not json", {
+        headers: { "content-type": "text/event-stream" },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp("/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+      },
+      body: JSON.stringify({
+        model: "claude-malformed-messages",
+        max_tokens: 64,
+        stream: true,
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    assertEquals(response.status, 200);
+
+    const events = parseSSEText(await response.text());
+    assertEquals(events.length, 1);
+    assertEquals(events[0].event, "error");
+
+    const event = JSON.parse(events[0].data);
+    assertEquals(event.type, "error");
+    assertEquals(event.error.type, "internal_error");
+    assertStringIncludes(
+      event.error.message,
+      'Malformed upstream Messages SSE JSON for event "message_delta": not json',
+    );
+    assertExists(event.error.stack);
   });
 });
 

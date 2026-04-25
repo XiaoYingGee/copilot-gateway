@@ -1,10 +1,14 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import type {
   ResponsesResult,
   ResponseStreamEvent,
 } from "../../../../lib/responses-types.ts";
-import { expandChatFrames } from "../../sources/chat-completions/collect/from-events.ts";
-import { sseFrame, type StreamFrame } from "../../shared/stream/types.ts";
+import { chatProtocolEventsToSSEFrames } from "../../sources/chat-completions/events/to-sse.ts";
+import { eventFrame, type ProtocolFrame } from "../../shared/stream/types.ts";
+import {
+  responsesResultToEvents,
+  type SequencedResponseStreamEvent,
+} from "../../targets/responses/events/from-result.ts";
 import { translateToSourceEvents } from "./translate-to-source-events.ts";
 
 const makeResponse = (status: ResponsesResult["status"]): ResponsesResult => ({
@@ -25,12 +29,13 @@ const makeResponse = (status: ResponsesResult["status"]): ResponsesResult => ({
   },
 });
 
-const toSseFrame = (
+const toProtocolFrame = (
   event: ResponseStreamEvent,
-): StreamFrame<ResponsesResult> => sseFrame(JSON.stringify(event), event.type);
+): ProtocolFrame<SequencedResponseStreamEvent> =>
+  eventFrame({ ...event, sequence_number: 0 });
 
 const countDoneSentinels = async (
-  frames: StreamFrame<ResponsesResult>[],
+  frames: ProtocolFrame<SequencedResponseStreamEvent>[],
 ): Promise<number> => {
   let doneCount = 0;
 
@@ -39,7 +44,9 @@ const countDoneSentinels = async (
   }
 
   for await (
-    const frame of expandChatFrames(translateToSourceEvents(stream()))
+    const frame of chatProtocolEventsToSSEFrames(
+      translateToSourceEvents(stream()),
+    )
   ) {
     if (frame.data === "[DONE]") doneCount++;
   }
@@ -48,7 +55,7 @@ const countDoneSentinels = async (
 };
 
 const countAssistantStartChunksAndDone = async (
-  frames: StreamFrame<ResponsesResult>[],
+  frames: ProtocolFrame<SequencedResponseStreamEvent>[],
 ): Promise<{ assistantStartCount: number; doneCount: number }> => {
   let assistantStartCount = 0;
   let doneCount = 0;
@@ -58,7 +65,9 @@ const countAssistantStartChunksAndDone = async (
   }
 
   for await (
-    const frame of expandChatFrames(translateToSourceEvents(stream()))
+    const frame of chatProtocolEventsToSSEFrames(
+      translateToSourceEvents(stream()),
+    )
   ) {
     if (frame.data === "[DONE]") {
       doneCount++;
@@ -74,20 +83,26 @@ const countAssistantStartChunksAndDone = async (
   return { assistantStartCount, doneCount };
 };
 
+const drain = async <T>(frames: AsyncIterable<T>): Promise<void> => {
+  for await (const _frame of frames) {
+    // Exhaust the stream so async translator errors surface to the caller.
+  }
+};
+
 Deno.test("translateToSourceEvents emits exactly one [DONE] for structured responses stream", async () => {
   const doneCount = await countDoneSentinels([
-    toSseFrame({
+    toProtocolFrame({
       type: "response.created",
       response: makeResponse("in_progress"),
     }),
-    toSseFrame({
+    toProtocolFrame({
       type: "response.output_text.delta",
       item_id: "msg_1",
       output_index: 0,
       content_index: 0,
       delta: "hello",
     }),
-    toSseFrame({
+    toProtocolFrame({
       type: "response.completed",
       response: makeResponse("completed"),
     }),
@@ -98,14 +113,14 @@ Deno.test("translateToSourceEvents emits exactly one [DONE] for structured respo
 
 Deno.test("translateToSourceEvents emits exactly one [DONE] for fallback completion stream", async () => {
   const doneCount = await countDoneSentinels([
-    toSseFrame({
+    toProtocolFrame({
       type: "response.output_text.done",
       item_id: "msg_1",
       output_index: 0,
       content_index: 0,
       text: "hello",
     }),
-    toSseFrame({
+    toProtocolFrame({
       type: "response.completed",
       response: makeResponse("completed"),
     }),
@@ -117,11 +132,11 @@ Deno.test("translateToSourceEvents emits exactly one [DONE] for fallback complet
 Deno.test("translateToSourceEvents avoids assistant-start duplication for created+completed fallback", async () => {
   const { assistantStartCount, doneCount } =
     await countAssistantStartChunksAndDone([
-      toSseFrame({
+      toProtocolFrame({
         type: "response.created",
         response: makeResponse("in_progress"),
       }),
-      toSseFrame({
+      toProtocolFrame({
         type: "response.completed",
         response: makeResponse("completed"),
       }),
@@ -129,4 +144,93 @@ Deno.test("translateToSourceEvents avoids assistant-start duplication for create
 
   assertEquals(assistantStartCount, 1);
   assertEquals(doneCount, 1);
+});
+
+Deno.test("translateToSourceEvents preserves refusal text from JSON fallback", async () => {
+  async function* stream() {
+    yield* responsesResultToEvents({
+      id: "resp_refusal",
+      object: "response",
+      model: "gpt-test",
+      status: "completed",
+      output_text: "",
+      output: [{
+        type: "message",
+        role: "assistant",
+        content: [{ type: "refusal", refusal: "No." }],
+      }],
+      usage: {
+        input_tokens: 3,
+        output_tokens: 1,
+        total_tokens: 4,
+      },
+    });
+  }
+
+  const text: string[] = [];
+
+  for await (const frame of translateToSourceEvents(stream())) {
+    if (frame.type !== "event") continue;
+    text.push(frame.event.choices[0]?.delta.content ?? "");
+  }
+
+  assertEquals(text.join(""), "No.");
+});
+
+Deno.test("translateToSourceEvents rejects Responses error events", async () => {
+  async function* stream() {
+    yield toProtocolFrame({
+      type: "error",
+      message: "upstream overloaded",
+      code: "overloaded_error",
+    });
+  }
+
+  await assertRejects(
+    async () => await drain(translateToSourceEvents(stream())),
+    Error,
+    "Upstream Responses stream error: overloaded_error: upstream overloaded",
+  );
+});
+
+Deno.test("translateToSourceEvents rejects Responses failed terminal events", async () => {
+  async function* stream() {
+    yield toProtocolFrame({
+      type: "response.failed",
+      response: {
+        ...makeResponse("failed"),
+        output_text: "",
+        output: [],
+        error: {
+          type: "server_error",
+          code: "server_error",
+          message: "upstream failed",
+        },
+      },
+    });
+  }
+
+  await assertRejects(
+    async () => await drain(translateToSourceEvents(stream())),
+    Error,
+    "Upstream Responses stream failed: server_error: upstream failed",
+  );
+});
+
+Deno.test("translateToSourceEvents rejects truncated Responses streams without terminal events", async () => {
+  async function* stream() {
+    yield toProtocolFrame({
+      type: "response.output_text.delta",
+      item_id: "msg_1",
+      output_index: 0,
+      content_index: 0,
+      delta: "partial",
+    });
+  }
+
+  await assertRejects(
+    async () => await drain(translateToSourceEvents(stream())),
+    Error,
+    "Upstream Responses stream ended without a terminal event.",
+  );
 });

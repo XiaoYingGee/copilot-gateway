@@ -236,6 +236,15 @@ export type ResponseStreamEvent =
   | { type: "response.completed"; response: ResponsesResult }
   | { type: "response.incomplete"; response: ResponsesResult }
   | { type: "response.failed"; response: ResponsesResult }
-  | { type: "error"; message: string; code?: string }
+  | {
+    type: "error";
+    message: string;
+    code?: string;
+    name?: string;
+    stack?: string;
+    cause?: unknown;
+    source_api?: string;
+    target_api?: string;
+  }
   | { type: "ping" }
   | { type: string; [key: string]: unknown };

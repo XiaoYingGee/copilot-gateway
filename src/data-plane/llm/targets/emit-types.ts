@@ -1,6 +1,6 @@
 import type { CopilotFetchOptions } from "../../../lib/copilot.ts";
 import type { ExecuteResult } from "../shared/errors/result.ts";
-import type { StreamFrame } from "../shared/stream/types.ts";
+import type { ProtocolFrame, StreamFrame } from "../shared/stream/types.ts";
 import type { SourceApi } from "../shared/types/source-api.ts";
 
 export interface EmitInput<TPayload> {
@@ -12,4 +12,6 @@ export interface EmitInput<TPayload> {
   fetchOptions?: CopilotFetchOptions;
 }
 
-export type EmitResult<TJson> = ExecuteResult<StreamFrame<TJson>>;
+export type RawEmitResult<TJson> = ExecuteResult<StreamFrame<TJson>>;
+
+export type EmitResult<TEvent> = ExecuteResult<ProtocolFrame<TEvent>>;

@@ -1,47 +1,30 @@
 import type {
-  MessagesResponse,
   MessagesStreamEventData,
 } from "../../../../lib/messages-types.ts";
-import type { ResponsesResult } from "../../../../lib/responses-types.ts";
-import { translateMessagesToResponsesResult } from "../../../../lib/translate/messages-to-responses.ts";
 import {
   createMessagesToResponsesStreamState,
   translateMessagesEventToResponsesEvents,
 } from "../../../../lib/translate/messages-to-responses-stream.ts";
-import {
-  jsonFrame,
-  sseFrame,
-  type StreamFrame,
-} from "../../shared/stream/types.ts";
+import { eventFrame, type ProtocolFrame } from "../../shared/stream/types.ts";
+import type { SourceResponseStreamEvent } from "../../sources/responses/events/to-sse.ts";
 
 export const translateToSourceEvents = async function* (
-  frames: AsyncIterable<StreamFrame<MessagesResponse>>,
+  frames: AsyncIterable<ProtocolFrame<MessagesStreamEventData>>,
   responseId: string,
   model: string,
-): AsyncGenerator<StreamFrame<ResponsesResult>> {
+): AsyncGenerator<ProtocolFrame<SourceResponseStreamEvent>> {
   const state = createMessagesToResponsesStreamState(responseId, model);
 
   for await (const frame of frames) {
-    if (frame.type === "json") {
-      yield jsonFrame(translateMessagesToResponsesResult(frame.data));
-      continue;
-    }
-
-    const data = frame.data.trim();
-    if (!data || data === "[DONE]") continue;
-
-    let event: MessagesStreamEventData;
-
-    try {
-      event = JSON.parse(data) as MessagesStreamEventData;
-    } catch {
-      continue;
-    }
+    if (frame.type === "done") continue;
 
     for (
-      const translated of translateMessagesEventToResponsesEvents(event, state)
+      const translated of translateMessagesEventToResponsesEvents(
+        frame.event,
+        state,
+      )
     ) {
-      yield sseFrame(JSON.stringify(translated), translated.type);
+      yield eventFrame(translated);
     }
   }
 };

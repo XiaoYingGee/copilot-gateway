@@ -3,7 +3,6 @@ import type {
   ResponsesPayload,
   ResponsesResult,
 } from "../../../../lib/responses-types.ts";
-import { isSSEResponse } from "../../../../lib/sse-reassemble.ts";
 import { readUpstreamError } from "../../shared/errors/upstream-error.ts";
 import {
   eventResult,
@@ -11,18 +10,28 @@ import {
 } from "../../shared/errors/result.ts";
 import { toInternalDebugError } from "../../shared/errors/internal-debug-error.ts";
 import { parseSSEStream } from "../../shared/stream/parse-sse.ts";
+import { isSSEResponse } from "../../shared/stream/is-sse-response.ts";
 import { jsonFrame } from "../../shared/stream/types.ts";
 import { runTargetInterceptors } from "../run-interceptors.ts";
-import type { EmitInput, EmitResult } from "../emit-types.ts";
+import type { EmitInput, EmitResult, RawEmitResult } from "../emit-types.ts";
+import { type SequencedResponseStreamEvent } from "./events/from-result.ts";
+import { responsesStreamFramesToEvents } from "./events/from-stream.ts";
 import { responsesTargetInterceptors } from "./interceptors/index.ts";
+
+const responsesRawResultToProtocolResult = (
+  result: RawEmitResult<ResponsesResult>,
+): EmitResult<SequencedResponseStreamEvent> =>
+  result.type === "events"
+    ? eventResult(responsesStreamFramesToEvents(result.events))
+    : result;
 
 export const emitToResponses = async (
   input: EmitInput<ResponsesPayload>,
-): Promise<EmitResult<ResponsesResult>> => {
+): Promise<EmitResult<SequencedResponseStreamEvent>> => {
   try {
     input.payload.stream = true;
 
-    return await runTargetInterceptors<
+    const result = await runTargetInterceptors<
       EmitInput<ResponsesPayload>,
       ResponsesResult
     >(
@@ -61,6 +70,8 @@ export const emitToResponses = async (
         })());
       },
     );
+
+    return responsesRawResultToProtocolResult(result);
   } catch (error) {
     return internalErrorResult(
       502,

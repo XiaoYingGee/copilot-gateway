@@ -1,4 +1,9 @@
-import { assertEquals, assertExists, assertFalse } from "@std/assert";
+import {
+  assertEquals,
+  assertExists,
+  assertFalse,
+  assertStringIncludes,
+} from "@std/assert";
 import {
   copilotModels,
   jsonResponse,
@@ -41,6 +46,129 @@ Deno.test("/v1/chat/completions malformed JSON returns structured internal debug
   assertEquals(body.error.name, "SyntaxError");
   assertEquals(body.error.source_api, "chat-completions");
   assertExists(body.error.stack);
+});
+
+Deno.test("/v1/chat/completions streams malformed upstream Chat SSE as an error event", async () => {
+  const { apiKey } = await setupAppTest();
+
+  await withMockedFetch((request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        {
+          id: "gpt-malformed-chat",
+          supported_endpoints: ["/chat/completions"],
+        },
+      ]));
+    }
+    if (url.pathname === "/chat/completions") {
+      return new Response("data: not json", {
+        headers: { "content-type": "text/event-stream" },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp("/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+      },
+      body: JSON.stringify({
+        model: "gpt-malformed-chat",
+        stream: true,
+        messages: [{ role: "user", content: "Hi" }],
+      }),
+    });
+
+    assertEquals(response.status, 200);
+
+    const events = parseSSEText(await response.text());
+    assertEquals(events.length, 1);
+    assertEquals(events[0].event, "error");
+
+    const event = JSON.parse(events[0].data);
+    assertEquals(event.error.type, "internal_error");
+    assertStringIncludes(
+      event.error.message,
+      "Malformed upstream Chat Completions SSE JSON: not json",
+    );
+    assertExists(event.error.stack);
+  });
+});
+
+Deno.test("/v1/chat/completions rejects upstream Chat SSE error payloads in non-stream responses", async () => {
+  const { apiKey } = await setupAppTest();
+
+  await withMockedFetch((request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        {
+          id: "gpt-chat-error-payload",
+          supported_endpoints: ["/chat/completions"],
+        },
+      ]));
+    }
+    if (url.pathname === "/chat/completions") {
+      return new Response(
+        `data: ${
+          JSON.stringify({
+            error: {
+              type: "server_error",
+              message: "upstream chat failed",
+            },
+          })
+        }`,
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp("/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+      },
+      body: JSON.stringify({
+        model: "gpt-chat-error-payload",
+        messages: [{ role: "user", content: "Hi" }],
+      }),
+    });
+
+    assertEquals(response.status, 502);
+    const body = await response.json();
+    assertEquals(body.error.type, "internal_error");
+    assertStringIncludes(
+      body.error.message,
+      "Upstream Chat Completions SSE error: server_error: upstream chat failed",
+    );
+  });
 });
 
 Deno.test("/v1/chat/completions prefers the native chat path on dual-endpoint models", async () => {

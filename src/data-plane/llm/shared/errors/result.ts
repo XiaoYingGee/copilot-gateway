@@ -1,5 +1,5 @@
 import type { InternalDebugError } from "./internal-debug-error.ts";
-import type { StreamFrame } from "../stream/types.ts";
+import type { ProtocolFrame } from "../stream/types.ts";
 
 export interface EventResult<T> {
   type: "events";
@@ -24,7 +24,7 @@ export type ExecuteResult<T> =
   | UpstreamErrorResult
   | InternalErrorResult;
 
-export type StreamExecuteResult<T> = ExecuteResult<StreamFrame<T>>;
+export type StreamExecuteResult<TEvent> = ExecuteResult<ProtocolFrame<TEvent>>;
 
 export const eventResult = <T>(events: AsyncIterable<T>): EventResult<T> => ({
   type: "events",

@@ -1,9 +1,9 @@
 import { copilotFetch } from "../../../../lib/copilot.ts";
 import type {
+  ChatCompletionChunk,
   ChatCompletionResponse,
   ChatCompletionsPayload,
 } from "../../../../lib/chat-completions-types.ts";
-import { isSSEResponse } from "../../../../lib/sse-reassemble.ts";
 import { readUpstreamError } from "../../shared/errors/upstream-error.ts";
 import {
   eventResult,
@@ -11,19 +11,28 @@ import {
 } from "../../shared/errors/result.ts";
 import { toInternalDebugError } from "../../shared/errors/internal-debug-error.ts";
 import { parseSSEStream } from "../../shared/stream/parse-sse.ts";
+import { isSSEResponse } from "../../shared/stream/is-sse-response.ts";
 import { jsonFrame } from "../../shared/stream/types.ts";
 import { runTargetInterceptors } from "../run-interceptors.ts";
-import type { EmitInput, EmitResult } from "../emit-types.ts";
+import type { EmitInput, EmitResult, RawEmitResult } from "../emit-types.ts";
+import { chatCompletionsStreamFramesToEvents } from "./events/from-stream.ts";
 import { chatCompletionsTargetInterceptors } from "./interceptors/index.ts";
 
 export interface EmitToChatCompletionsInput
   extends EmitInput<ChatCompletionsPayload> {}
 
+const chatCompletionsRawResultToProtocolResult = (
+  result: RawEmitResult<ChatCompletionResponse>,
+): EmitResult<ChatCompletionChunk> =>
+  result.type === "events"
+    ? eventResult(chatCompletionsStreamFramesToEvents(result.events))
+    : result;
+
 export const emitToChatCompletions = async (
   input: EmitToChatCompletionsInput,
-): Promise<EmitResult<ChatCompletionResponse>> => {
+): Promise<EmitResult<ChatCompletionChunk>> => {
   try {
-    return await runTargetInterceptors<
+    const result = await runTargetInterceptors<
       EmitToChatCompletionsInput,
       ChatCompletionResponse
     >(
@@ -62,6 +71,8 @@ export const emitToChatCompletions = async (
         })());
       },
     );
+
+    return chatCompletionsRawResultToProtocolResult(result);
   } catch (error) {
     return internalErrorResult(
       502,

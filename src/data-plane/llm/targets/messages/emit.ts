@@ -1,9 +1,9 @@
 import { copilotFetch } from "../../../../lib/copilot.ts";
 import type {
   MessagesResponse,
+  MessagesStreamEventData,
   MessagesTargetPayload,
 } from "../../../../lib/messages-types.ts";
-import { isSSEResponse } from "../../../../lib/sse-reassemble.ts";
 import { readUpstreamError } from "../../shared/errors/upstream-error.ts";
 import {
   eventResult,
@@ -11,22 +11,34 @@ import {
 } from "../../shared/errors/result.ts";
 import { toInternalDebugError } from "../../shared/errors/internal-debug-error.ts";
 import { parseSSEStream } from "../../shared/stream/parse-sse.ts";
+import { isSSEResponse } from "../../shared/stream/is-sse-response.ts";
 import { jsonFrame } from "../../shared/stream/types.ts";
 import { runTargetInterceptors } from "../run-interceptors.ts";
-import type { EmitInput, EmitResult } from "../emit-types.ts";
+import type { EmitInput, EmitResult, RawEmitResult } from "../emit-types.ts";
+import { messagesStreamFramesToEvents } from "./events/from-stream.ts";
 import { messagesTargetInterceptors } from "./interceptors/index.ts";
 
 export interface EmitToMessagesInput extends EmitInput<MessagesTargetPayload> {
   rawBeta?: string;
 }
 
+const messagesRawResultToProtocolResult = (
+  result: RawEmitResult<MessagesResponse>,
+): EmitResult<MessagesStreamEventData> =>
+  result.type === "events"
+    ? eventResult(messagesStreamFramesToEvents(result.events))
+    : result;
+
 export const emitToMessages = async (
   input: EmitToMessagesInput,
-): Promise<EmitResult<MessagesResponse>> => {
+): Promise<EmitResult<MessagesStreamEventData>> => {
   try {
     input.payload.stream = true;
 
-    return await runTargetInterceptors<EmitToMessagesInput, MessagesResponse>(
+    const result = await runTargetInterceptors<
+      EmitToMessagesInput,
+      MessagesResponse
+    >(
       input,
       messagesTargetInterceptors,
       async () => {
@@ -62,6 +74,8 @@ export const emitToMessages = async (
         })());
       },
     );
+
+    return messagesRawResultToProtocolResult(result);
   } catch (error) {
     return internalErrorResult(
       502,

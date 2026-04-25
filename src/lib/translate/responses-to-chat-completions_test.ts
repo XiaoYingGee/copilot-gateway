@@ -280,9 +280,6 @@ Deno.test("translateResponsesEventToChatCompletionsChunks emits a completed opaq
       output_text: "",
     },
   }, state);
-  if (created === "DONE") {
-    throw new Error("unexpected DONE on response.created");
-  }
   assertEquals(created.length, 1);
   assertEquals(created[0].choices[0].delta.role, "assistant");
 
@@ -296,9 +293,6 @@ Deno.test("translateResponsesEventToChatCompletionsChunks emits a completed opaq
       encrypted_content: "enc_1",
     },
   }, state);
-  if (during === "DONE") {
-    throw new Error("unexpected DONE on response.output_item.done");
-  }
   assertEquals(during.length, 2);
   assertEquals(during[0].choices[0].delta.reasoning_opaque, "enc_1");
   assertEquals(during[0].choices[0].finish_reason, null);
@@ -325,9 +319,6 @@ Deno.test("translateResponsesEventToChatCompletionsChunks emits a completed opaq
       },
     },
   }, state);
-  if (completed === "DONE") {
-    throw new Error("unexpected DONE on response.completed");
-  }
 
   assertEquals(completed.length, 2);
   assertEquals(completed[0].choices[0].delta, {});
@@ -383,7 +374,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks does not fill scalar o
         encrypted_content: "enc_2",
       },
     }, state),
-  ].flatMap((result) => result === "DONE" ? [] : result);
+  ].flatMap((result) => result);
 
   const completed = translateResponsesEventToChatCompletionsChunks({
     type: "response.completed",
@@ -396,9 +387,6 @@ Deno.test("translateResponsesEventToChatCompletionsChunks does not fill scalar o
       output_text: "",
     },
   }, state);
-  if (completed === "DONE") {
-    throw new Error("unexpected DONE on response.completed");
-  }
 
   assertEquals(
     [...chunks, ...completed].some((chunk) =>
@@ -434,9 +422,6 @@ Deno.test("translateResponsesEventToChatCompletionsChunks emits reasoning_items 
       encrypted_content: "enc_1",
     },
   }, state);
-  if (firstReasoning === "DONE") {
-    throw new Error("unexpected DONE on first response.output_item.done");
-  }
   const secondReasoning = translateResponsesEventToChatCompletionsChunks({
     type: "response.output_item.done",
     output_index: 1,
@@ -447,9 +432,6 @@ Deno.test("translateResponsesEventToChatCompletionsChunks emits reasoning_items 
       encrypted_content: "enc_2",
     },
   }, state);
-  if (secondReasoning === "DONE") {
-    throw new Error("unexpected DONE on second response.output_item.done");
-  }
 
   const completed = translateResponsesEventToChatCompletionsChunks({
     type: "response.completed",
@@ -467,9 +449,6 @@ Deno.test("translateResponsesEventToChatCompletionsChunks emits reasoning_items 
       },
     },
   }, state);
-  if (completed === "DONE") {
-    throw new Error("unexpected DONE on response.completed");
-  }
 
   assertEquals(firstReasoning[0].choices[0].delta.reasoning_opaque, "enc_1");
   assertEquals(firstReasoning[1].choices[0].delta.reasoning_items, [
@@ -529,9 +508,6 @@ Deno.test("translateResponsesEventToChatCompletionsChunks projects done-only sum
       summary: [{ type: "summary_text", text: "done trace" }],
     },
   }, state);
-  if (reasoning === "DONE") {
-    throw new Error("unexpected DONE on response.output_item.done");
-  }
 
   const completed = translateResponsesEventToChatCompletionsChunks({
     type: "response.completed",
@@ -544,9 +520,6 @@ Deno.test("translateResponsesEventToChatCompletionsChunks projects done-only sum
       output_text: "",
     },
   }, state);
-  if (completed === "DONE") {
-    throw new Error("unexpected DONE on response.completed");
-  }
 
   assertEquals(reasoning[0].choices[0].delta.reasoning_text, "done trace");
   assertEquals(reasoning[1].choices[0].delta.reasoning_items, [{
@@ -580,9 +553,6 @@ Deno.test("translateResponsesEventToChatCompletionsChunks projects output_item.d
       summary: [{ type: "summary_text", text: "output trace" }],
     },
   }, state);
-  if (reasoning === "DONE") {
-    throw new Error("unexpected DONE on response.output_item.done");
-  }
 
   const completed = translateResponsesEventToChatCompletionsChunks({
     type: "response.completed",
@@ -595,9 +565,6 @@ Deno.test("translateResponsesEventToChatCompletionsChunks projects output_item.d
       output_text: "",
     },
   }, state);
-  if (completed === "DONE") {
-    throw new Error("unexpected DONE on response.completed");
-  }
 
   assertEquals(reasoning[0].choices[0].delta.reasoning_text, "output trace");
   assertEquals(reasoning[1].choices[0].delta.reasoning_items, [{
@@ -640,9 +607,6 @@ Deno.test("translateResponsesEventToChatCompletionsChunks emits stream usage as 
       },
     },
   }, state);
-  if (completed === "DONE") {
-    throw new Error("unexpected DONE on response.completed");
-  }
 
   assertEquals(completed.length, 2);
   assertEquals(completed[0].choices[0].finish_reason, "stop");
@@ -715,7 +679,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks preserves reasoning be
         output_text: "answer",
       },
     }, state),
-  ].flatMap((result) => result === "DONE" ? [] : result);
+  ].flatMap((result) => result);
 
   assertEquals(chunks.map((chunk) => chunk.choices[0]?.delta), [
     { role: "assistant" },
@@ -792,7 +756,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks preserves reasoning be
         output_text: "answer",
       },
     }, state),
-  ].flatMap((result) => result === "DONE" ? [] : result);
+  ].flatMap((result) => result);
 
   assertEquals(chunks.map((chunk) => chunk.choices[0]?.delta), [
     { role: "assistant" },
@@ -831,7 +795,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks emits output_text.done
       content_index: 0,
       text: "answer",
     }, state),
-  ].flatMap((result) => result === "DONE" ? [] : result);
+  ].flatMap((result) => result);
 
   assertEquals(chunks.map((chunk) => chunk.choices[0]?.delta), [
     { role: "assistant" },
@@ -870,7 +834,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks emits function_call_ar
       output_index: 0,
       arguments: '{"q":1}',
     }, state),
-  ].flatMap((result) => result === "DONE" ? [] : result);
+  ].flatMap((result) => result);
 
   assertEquals(chunks.map((chunk) => chunk.choices[0]?.delta), [
     { role: "assistant" },
@@ -936,7 +900,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks emits all done-only re
         ],
       },
     }, state),
-  ].flatMap((result) => result === "DONE" ? [] : result);
+  ].flatMap((result) => result);
 
   assertEquals(
     chunks
@@ -978,9 +942,6 @@ Deno.test("translateResponsesEventToChatCompletionsChunks flushes pending done-o
       output_text: "",
     },
   }, state);
-  if (completed === "DONE") {
-    throw new Error("unexpected DONE on response.completed");
-  }
 
   assertEquals(completed.map((chunk) => chunk.choices[0]?.delta), [
     { reasoning_text: "terminal trace" },
@@ -1032,7 +993,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks keeps first scalar rea
         encrypted_content: "enc_first",
       },
     }, state),
-  ].flatMap((result) => result === "DONE" ? [] : result);
+  ].flatMap((result) => result);
 
   assertEquals(chunks.map((chunk) => chunk.choices[0]?.delta), [
     { role: "assistant" },

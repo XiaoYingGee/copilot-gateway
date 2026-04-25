@@ -1,33 +1,27 @@
-/**
- * SSE stream reassembly functions.
- *
- * When we force `stream: true` upstream, these functions consume the SSE
- * stream and reassemble the full non-streaming response object.
- */
+/** Reassemble source-shaped protocol events into non-streaming response objects. */
 
-import { parseSSEStream } from "./sse.ts";
 import { isRecord } from "./type-guards.ts";
+import { chatCompletionsErrorPayloadMessage } from "./chat-completions-errors.ts";
 import type {
   MessagesAssistantContentBlock,
   MessagesResponse,
   MessagesServerToolUseBlock,
+  MessagesStreamEventData,
   MessagesTextCitation,
   MessagesToolUseBlock,
   MessagesWebSearchToolResultBlock,
 } from "./messages-types.ts";
 import type {
+  ChatCompletionChunk,
   ChatCompletionResponse,
   ChatReasoningItem,
   ChoiceNonStreaming,
   ToolCall,
 } from "./chat-completions-types.ts";
-import type { ResponsesResult } from "./responses-types.ts";
-
-/** Check if an upstream response is SSE (vs plain JSON fallback). */
-export function isSSEResponse(resp: Response): boolean {
-  const ct = resp.headers.get("content-type") ?? "";
-  return ct.includes("text/event-stream");
-}
+import type {
+  ResponsesResult,
+  ResponseStreamEvent,
+} from "./responses-types.ts";
 
 const normalizeMessagesTextCitation = (
   value: unknown,
@@ -150,10 +144,8 @@ type BlockAccumulator =
   | ThinkingBlockAccumulator
   | RedactedThinkingBlockAccumulator;
 
-// ── Messages SSE → MessagesResponse ──
-
-export async function reassembleMessagesSSE(
-  body: ReadableStream<Uint8Array>,
+export async function reassembleMessagesEvents(
+  events: AsyncIterable<MessagesStreamEventData>,
 ): Promise<MessagesResponse> {
   let id = "";
   let model = "";
@@ -166,22 +158,12 @@ export async function reassembleMessagesSSE(
 
   const blocks: Array<BlockAccumulator | undefined> = [];
 
-  for await (const raw of parseSSEStream(body)) {
-    if (!raw.data) continue;
-    const trimmed = raw.data.trim();
-    if (trimmed === "[DONE]" || !trimmed) continue;
-
-    let event: Record<string, unknown>;
-    try {
-      event = JSON.parse(trimmed);
-    } catch {
-      continue;
-    }
-
-    const type = event.type as string;
+  for await (const event of events) {
+    const rawEvent = event as unknown as Record<string, unknown>;
+    const type = rawEvent.type as string;
 
     if (type === "message_start") {
-      const msg = event.message as Record<string, unknown>;
+      const msg = rawEvent.message as Record<string, unknown>;
       id = msg.id as string;
       model = msg.model as string;
       if (msg.usage) {
@@ -210,8 +192,8 @@ export async function reassembleMessagesSSE(
     }
 
     if (type === "content_block_start") {
-      const idx = event.index as number;
-      const cb = event.content_block as Record<string, unknown>;
+      const idx = rawEvent.index as number;
+      const cb = rawEvent.content_block as Record<string, unknown>;
       const cbType = cb.type as string;
 
       if (cbType === "text") {
@@ -255,8 +237,8 @@ export async function reassembleMessagesSSE(
     }
 
     if (type === "content_block_delta") {
-      const idx = event.index as number;
-      const delta = event.delta as Record<string, unknown>;
+      const idx = rawEvent.index as number;
+      const delta = rawEvent.delta as Record<string, unknown>;
       const deltaType = delta.type as string;
       const block = blocks[idx];
       if (!block) continue;
@@ -285,7 +267,7 @@ export async function reassembleMessagesSSE(
     }
 
     if (type === "content_block_stop") {
-      const idx = event.index as number;
+      const idx = rawEvent.index as number;
       const block = blocks[idx];
       if (block?.type === "tool_use" && block.inputJson) {
         try {
@@ -298,15 +280,15 @@ export async function reassembleMessagesSSE(
     }
 
     if (type === "message_delta") {
-      const delta = event.delta as Record<string, unknown>;
+      const delta = rawEvent.delta as Record<string, unknown>;
       if (delta.stop_reason != null) {
         stopReason = delta.stop_reason as MessagesResponse["stop_reason"];
       }
       if ("stop_sequence" in delta) {
         stopSequence = delta.stop_sequence as string | null;
       }
-      if (event.usage) {
-        const u = event.usage as Record<string, unknown>;
+      if (rawEvent.usage) {
+        const u = rawEvent.usage as Record<string, unknown>;
         if (u.input_tokens != null) {
           usage.input_tokens = u.input_tokens as number;
         }
@@ -330,7 +312,7 @@ export async function reassembleMessagesSSE(
     }
 
     if (type === "error") {
-      const err = event.error as Record<string, unknown>;
+      const err = rawEvent.error as Record<string, unknown>;
       throw new Error(
         `Upstream SSE error: ${err?.type ?? "unknown"}: ${
           err?.message ?? JSON.stringify(event)
@@ -399,10 +381,8 @@ export async function reassembleMessagesSSE(
   };
 }
 
-// ── Chat Completions SSE → ChatCompletionResponse ──
-
-export async function reassembleChatCompletionsSSE(
-  body: ReadableStream<Uint8Array>,
+export async function reassembleChatCompletionChunks(
+  chunks: AsyncIterable<ChatCompletionChunk>,
 ): Promise<ChatCompletionResponse> {
   let id = "";
   let model = "";
@@ -420,16 +400,10 @@ export async function reassembleChatCompletionsSSE(
     { id: string; name: string; arguments: string }
   >();
 
-  for await (const raw of parseSSEStream(body)) {
-    if (!raw.data) continue;
-    const trimmed = raw.data.trim();
-    if (trimmed === "[DONE]" || !trimmed) continue;
-
-    let chunk: Record<string, unknown>;
-    try {
-      chunk = JSON.parse(trimmed);
-    } catch {
-      continue;
+  for await (const chunk of chunks) {
+    const errorMessage = chatCompletionsErrorPayloadMessage(chunk);
+    if (errorMessage) {
+      throw new Error(`Upstream Chat Completions SSE error: ${errorMessage}`);
     }
 
     if (!id && chunk.id) {
@@ -442,7 +416,9 @@ export async function reassembleChatCompletionsSSE(
       lastUsage = chunk.usage as ChatCompletionResponse["usage"];
     }
 
-    const choices = chunk.choices as Array<Record<string, unknown>> | undefined;
+    const choices = chunk.choices as unknown as
+      | Array<Record<string, unknown>>
+      | undefined;
     if (!choices) continue;
 
     for (const choice of choices) {
@@ -533,27 +509,21 @@ export async function reassembleChatCompletionsSSE(
   return result;
 }
 
-// ── Responses SSE → ResponsesResult ──
+type ResponsesReassembleEvent = ResponseStreamEvent | {
+  type: "error";
+  message?: string;
+};
 
-export async function reassembleResponsesSSE(
-  body: ReadableStream<Uint8Array>,
+export async function reassembleResponsesEvents(
+  events: AsyncIterable<ResponsesReassembleEvent>,
 ): Promise<ResponsesResult> {
-  for await (const raw of parseSSEStream(body)) {
-    if (!raw.data) continue;
-    const trimmed = raw.data.trim();
-    if (!trimmed) continue;
-
-    let event: Record<string, unknown>;
-    try {
-      event = JSON.parse(trimmed);
-    } catch {
-      continue;
-    }
-
-    const type = (event.type as string) || (raw.event as string);
+  for await (const event of events) {
+    const rawEvent = event as unknown as Record<string, unknown>;
+    const type = rawEvent.type as string;
 
     if (type === "error") {
-      const message = (event.message as string) ?? JSON.stringify(event);
+      const message = (rawEvent.message as string | undefined) ??
+        JSON.stringify(event);
       throw new Error(`Upstream SSE error: ${message}`);
     }
 
@@ -561,7 +531,7 @@ export async function reassembleResponsesSSE(
       type === "response.completed" || type === "response.incomplete" ||
       type === "response.failed"
     ) {
-      return event.response as ResponsesResult;
+      return rawEvent.response as ResponsesResult;
     }
   }
 

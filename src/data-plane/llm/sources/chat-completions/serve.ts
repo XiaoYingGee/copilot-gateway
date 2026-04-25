@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import type {
-  ChatCompletionResponse,
+  ChatCompletionChunk,
   ChatCompletionsPayload,
 } from "../../../../lib/chat-completions-types.ts";
 import { getGithubCredentials } from "../../../../lib/github.ts";
@@ -19,14 +19,14 @@ import {
   type StreamExecuteResult,
 } from "../../shared/errors/result.ts";
 import { toInternalDebugError } from "../../shared/errors/internal-debug-error.ts";
-import type { StreamFrame } from "../../shared/stream/types.ts";
+import type { ProtocolFrame } from "../../shared/stream/types.ts";
 
 const withTranslatedEvents = <T>(
   result: StreamExecuteResult<T>,
   translate: (
-    events: AsyncIterable<StreamFrame<T>>,
-  ) => AsyncIterable<StreamFrame<ChatCompletionResponse>>,
-): StreamExecuteResult<ChatCompletionResponse> =>
+    events: AsyncIterable<ProtocolFrame<T>>,
+  ) => AsyncIterable<ProtocolFrame<ChatCompletionChunk>>,
+): StreamExecuteResult<ChatCompletionChunk> =>
   result.type === "events"
     ? { type: "events", events: translate(result.events) }
     : result;

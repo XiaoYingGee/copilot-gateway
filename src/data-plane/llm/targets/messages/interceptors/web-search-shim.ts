@@ -19,7 +19,7 @@ import type {
   MessagesWebSearchResultBlock,
   MessagesWebSearchToolResultError,
 } from "../../../../../lib/messages-types.ts";
-import { collectMessagesEventsToResponse } from "../../../sources/messages/collect/from-events.ts";
+import { collectMessagesProtocolEventsToResponse } from "../../../sources/messages/events/to-response.ts";
 import { internalErrorResult } from "../../../shared/errors/result.ts";
 import { toInternalDebugError } from "../../../shared/errors/internal-debug-error.ts";
 import { jsonFrame, type StreamFrame } from "../../../shared/stream/types.ts";
@@ -39,6 +39,7 @@ import type {
 } from "../../../../tools/web-search/types.ts";
 import type { TargetInterceptor } from "../../run-interceptors.ts";
 import type { EmitToMessagesInput } from "../emit.ts";
+import { messagesStreamFramesToEvents } from "../events/from-stream.ts";
 
 const MAX_QUERY_LENGTH = 1000;
 const WEB_SEARCH_TOOL_NAME = "web_search";
@@ -998,7 +999,9 @@ export const collectAndRewriteMessagesWebSearchEventsToNative =
     // text citations against the final search-result ordering. That forces us
     // to buffer the whole upstream Messages stream here and trade first-byte
     // latency for a single coherent rewritten response.
-    const response = await collectMessagesEventsToResponse(frames);
+    const response = await collectMessagesProtocolEventsToResponse(
+      messagesStreamFramesToEvents(frames),
+    );
     yield jsonFrame(
       await rewriteMessagesWebSearchResponseToNative(response, state, provider),
     );

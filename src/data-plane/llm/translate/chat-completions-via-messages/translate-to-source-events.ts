@@ -1,53 +1,47 @@
 import type {
-  MessagesResponse,
   MessagesStreamEventData,
 } from "../../../../lib/messages-types.ts";
-import type { ChatCompletionResponse } from "../../../../lib/chat-completions-types.ts";
-import { translateMessagesToChatCompletionsResponse } from "../../../../lib/translate/messages-to-chat-completions.ts";
+import type { ChatCompletionChunk } from "../../../../lib/chat-completions-types.ts";
 import {
   createMessagesToChatCompletionsStreamState,
   translateMessagesEventToChatCompletionsChunks,
 } from "../../../../lib/translate/messages-to-chat-completions-stream.ts";
 import {
-  jsonFrame,
-  sseFrame,
-  type StreamFrame,
+  doneFrame,
+  eventFrame,
+  type ProtocolFrame,
 } from "../../shared/stream/types.ts";
 
+const throwOnMessagesFatalEvent = (event: MessagesStreamEventData): void => {
+  if (event.type !== "error") return;
+
+  throw new Error(
+    `Upstream Messages stream error: ${event.error.type}: ${event.error.message}`,
+    { cause: event },
+  );
+};
+
 export const translateToSourceEvents = async function* (
-  frames: AsyncIterable<StreamFrame<MessagesResponse>>,
-): AsyncGenerator<StreamFrame<ChatCompletionResponse>> {
+  frames: AsyncIterable<ProtocolFrame<MessagesStreamEventData>>,
+): AsyncGenerator<ProtocolFrame<ChatCompletionChunk>> {
   const state = createMessagesToChatCompletionsStreamState();
 
   for await (const frame of frames) {
-    if (frame.type === "json") {
-      yield jsonFrame(translateMessagesToChatCompletionsResponse(frame.data));
-      continue;
-    }
-
-    const data = frame.data.trim();
-    if (!data || data === "[DONE]") continue;
-
-    let event: MessagesStreamEventData;
-
-    try {
-      event = JSON.parse(data) as MessagesStreamEventData;
-    } catch {
-      continue;
-    }
+    if (frame.type === "done") continue;
+    throwOnMessagesFatalEvent(frame.event);
 
     const translated = translateMessagesEventToChatCompletionsChunks(
-      event,
+      frame.event,
       state,
     );
 
     if (translated === "DONE") {
-      yield sseFrame("[DONE]");
+      yield doneFrame();
       continue;
     }
 
     for (const chunk of translated) {
-      yield sseFrame(JSON.stringify(chunk));
+      yield eventFrame(chunk);
     }
   }
 };

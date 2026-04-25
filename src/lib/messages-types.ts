@@ -301,7 +301,15 @@ interface MessagesPingEvent {
 
 export interface MessagesErrorEvent {
   type: "error";
-  error: { type: string; message: string };
+  error: {
+    type: string;
+    message: string;
+    name?: string;
+    stack?: string;
+    cause?: unknown;
+    source_api?: string;
+    target_api?: string;
+  };
 }
 
 export interface MessagesStreamState {

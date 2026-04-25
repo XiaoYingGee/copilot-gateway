@@ -66,6 +66,20 @@ Deno.test("/v1/responses direct mode converts apply_patch and fixes mismatched s
             },
           },
         },
+        {
+          event: "response.completed",
+          data: {
+            type: "response.completed",
+            response: {
+              id: "resp_direct",
+              object: "response",
+              model: "gpt-direct-responses",
+              status: "completed",
+              output_text: "done",
+              output: [],
+            },
+          },
+        },
       ]);
     }
 
@@ -97,7 +111,7 @@ Deno.test("/v1/responses direct mode converts apply_patch and fixes mismatched s
     assertEquals(response.status, 200);
     const text = await response.text();
     const events = parseSSEText(text);
-    assertEquals(events.length, 2);
+    assertEquals(events.length, 3);
     assertStringIncludes(events[1].data, '"id":"item_orig"');
   });
 
@@ -107,6 +121,66 @@ Deno.test("/v1/responses direct mode converts apply_patch and fixes mismatched s
   assertEquals(tool.name, "apply_patch");
   assertEquals((tool.parameters as Record<string, unknown>).type, "object");
   assertFalse("service_tier" in upstreamBody!);
+});
+
+Deno.test("/v1/responses streams malformed upstream Responses SSE as an error event", async () => {
+  const { apiKey } = await setupAppTest();
+
+  await withMockedFetch((request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        { id: "gpt-malformed-responses", supported_endpoints: ["/responses"] },
+      ]));
+    }
+    if (url.pathname === "/responses") {
+      return new Response(
+        "event: response.output_text.delta\ndata: not json",
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp("/v1/responses", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+      },
+      body: JSON.stringify({
+        model: "gpt-malformed-responses",
+        input: [{ type: "message", role: "user", content: "Hi" }],
+        stream: true,
+      }),
+    });
+
+    assertEquals(response.status, 200);
+
+    const events = parseSSEText(await response.text());
+    assertEquals(events.length, 1);
+    assertEquals(events[0].event, "error");
+
+    const event = JSON.parse(events[0].data);
+    assertEquals(event.type, "error");
+    assertEquals(event.code, "internal_error");
+    assertStringIncludes(
+      event.message,
+      'Malformed upstream Responses SSE JSON for event "response.output_text.delta": not json',
+    );
+    assertExists(event.stack);
+  });
 });
 
 Deno.test("/v1/responses direct mode synthesizes full Responses SSE when upstream falls back to JSON", async () => {

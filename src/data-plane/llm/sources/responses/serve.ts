@@ -1,8 +1,5 @@
 import type { Context } from "hono";
-import type {
-  ResponsesPayload,
-  ResponsesResult,
-} from "../../../../lib/responses-types.ts";
+import type { ResponsesPayload } from "../../../../lib/responses-types.ts";
 import { getGithubCredentials } from "../../../../lib/github.ts";
 import { normalizeResponsesRequest } from "./normalize/request.ts";
 import { planResponsesRequest } from "./plan.ts";
@@ -19,14 +16,15 @@ import {
   type StreamExecuteResult,
 } from "../../shared/errors/result.ts";
 import { toInternalDebugError } from "../../shared/errors/internal-debug-error.ts";
-import type { StreamFrame } from "../../shared/stream/types.ts";
+import type { ProtocolFrame } from "../../shared/stream/types.ts";
+import type { SourceResponseStreamEvent } from "./events/to-sse.ts";
 
 const withTranslatedEvents = <T>(
   result: StreamExecuteResult<T>,
   translate: (
-    events: AsyncIterable<StreamFrame<T>>,
-  ) => AsyncIterable<StreamFrame<ResponsesResult>>,
-): StreamExecuteResult<ResponsesResult> =>
+    events: AsyncIterable<ProtocolFrame<T>>,
+  ) => AsyncIterable<ProtocolFrame<SourceResponseStreamEvent>>,
+): StreamExecuteResult<SourceResponseStreamEvent> =>
   result.type === "events"
     ? { type: "events", events: translate(result.events) }
     : result;

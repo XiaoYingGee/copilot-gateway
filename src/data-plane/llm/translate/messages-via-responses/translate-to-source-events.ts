@@ -1,4 +1,4 @@
-import type { MessagesResponse } from "../../../../lib/messages-types.ts";
+import type { MessagesStreamEventData } from "../../../../lib/messages-types.ts";
 import type {
   ResponsesResult,
   ResponseStreamEvent,
@@ -9,40 +9,25 @@ import {
   translateResponsesStreamEventToMessagesEvents,
 } from "../../../../lib/translate/responses-to-messages-stream.ts";
 import {
-  jsonFrame,
-  sseFrame,
-  type StreamFrame,
+  type EventFrame,
+  eventFrame,
+  type ProtocolFrame,
 } from "../../shared/stream/types.ts";
+import { messagesResultToEvents } from "../../targets/messages/events/from-result.ts";
+import type { SequencedResponseStreamEvent } from "../../targets/responses/events/from-result.ts";
 
 export const translateToSourceEvents = async function* (
-  frames: AsyncIterable<StreamFrame<ResponsesResult>>,
-): AsyncGenerator<StreamFrame<MessagesResponse>> {
+  frames: AsyncIterable<ProtocolFrame<SequencedResponseStreamEvent>>,
+): AsyncGenerator<ProtocolFrame<MessagesStreamEventData>> {
   const state = createResponsesToMessagesStreamState();
   let sawStructuredOutput = false;
   let streamingCommitted = false;
-  const pendingFrames: Array<ReturnType<typeof sseFrame>> = [];
+  const pendingFrames: Array<EventFrame<MessagesStreamEventData>> = [];
 
   for await (const frame of frames) {
-    if (frame.type === "json") {
-      if (!streamingCommitted) pendingFrames.length = 0;
-      yield jsonFrame(translateResponsesToMessagesResponse(frame.data));
-      continue;
-    }
+    if (frame.type === "done") continue;
 
-    const data = frame.data.trim();
-    if (!data) continue;
-
-    let event: ResponseStreamEvent;
-
-    try {
-      event = JSON.parse(data) as ResponseStreamEvent;
-    } catch {
-      continue;
-    }
-
-    if (frame.event && !(event as { type?: string }).type) {
-      event = { ...event, type: frame.event } as ResponseStreamEvent;
-    }
+    const event = frame.event as ResponseStreamEvent;
 
     if (
       event.type === "response.output_item.added" ||
@@ -69,7 +54,7 @@ export const translateToSourceEvents = async function* (
         event.type === "response.incomplete")
     ) {
       pendingFrames.length = 0;
-      yield jsonFrame(
+      yield* messagesResultToEvents(
         translateResponsesToMessagesResponse(event.response as ResponsesResult),
       );
       continue;
@@ -81,10 +66,7 @@ export const translateToSourceEvents = async function* (
         state,
       )
     ) {
-      const translatedFrame = sseFrame(
-        JSON.stringify(translated),
-        translated.type,
-      );
+      const translatedFrame = eventFrame(translated);
       if (streamingCommitted) {
         yield translatedFrame;
       } else {
