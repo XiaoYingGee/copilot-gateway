@@ -21,6 +21,40 @@ function spinner(cls: string) {
   `;
 }
 
+function usageSummaryMetric(
+  metric: string,
+  label: string,
+  valueExpression: string,
+  skeletonWidth: string,
+) {
+  return html`
+    <button
+      type="button"
+      @click="switchTokenChartMetric('${metric}')"
+      class="text-center w-full rounded-md border border-transparent cursor-pointer transition-colors hover:border-white/10 focus:outline-none focus-visible:border-accent-cyan/40"
+      :aria-pressed="tokenChartMetric === '${metric}'"
+      title="Use ${label} for chart y-axis"
+    >
+      <span
+        class="block text-xs mb-1"
+        :class="tokenChartMetric === '${metric}' ? 'text-accent-cyan' : 'text-gray-500'"
+      >${label}</span>
+      <template x-if="tokenLoading && !chartsReady">
+        <span class="block h-7 ${skeletonWidth} mx-auto bg-surface-600 rounded animate-pulse">
+        </span>
+      </template>
+      <template x-if="!tokenLoading || chartsReady">
+        <span
+          class="block text-lg font-bold font-mono"
+          :class="tokenChartMetric === '${metric}' ? 'text-accent-cyan' : 'text-white'"
+          x-text="${valueExpression}"
+        >
+        </span>
+      </template>
+    </button>
+  `;
+}
+
 function codeBlock(
   lang: string,
   ref: string,
@@ -1116,90 +1150,42 @@ export function renderUsageTab() {
         </div>
 
         <div class="grid grid-cols-6 gap-4 mt-6 pt-5 border-t border-white/5">
-          <div class="text-center">
-            <p class="text-xs text-gray-500 mb-1">Requests</p>
-            <template x-if="tokenLoading && !chartsReady">
-              <div class="h-7 w-16 mx-auto bg-surface-600 rounded animate-pulse">
-              </div>
-            </template>
-            <template x-if="!tokenLoading || chartsReady">
-              <p
-                class="text-lg font-bold font-mono text-white"
-                x-text="tokenSummary.requests.toLocaleString()"
-              >
-              </p>
-            </template>
-          </div>
-          <div class="text-center">
-            <p class="text-xs text-gray-500 mb-1">Total Tokens</p>
-            <template x-if="tokenLoading && !chartsReady">
-              <div class="h-7 w-20 mx-auto bg-surface-600 rounded animate-pulse">
-              </div>
-            </template>
-            <template x-if="!tokenLoading || chartsReady">
-              <p
-                class="text-lg font-bold font-mono text-white"
-                x-text="tokenSummary.total.toLocaleString()"
-              >
-              </p>
-            </template>
-          </div>
-          <div class="text-center">
-            <p class="text-xs text-gray-500 mb-1">Input Tokens</p>
-            <template x-if="tokenLoading && !chartsReady">
-              <div class="h-7 w-20 mx-auto bg-surface-600 rounded animate-pulse">
-              </div>
-            </template>
-            <template x-if="!tokenLoading || chartsReady">
-              <p
-                class="text-lg font-bold font-mono text-white"
-                x-text="tokenSummary.input.toLocaleString()"
-              >
-              </p>
-            </template>
-          </div>
-          <div class="text-center">
-            <p class="text-xs text-gray-500 mb-1">Output Tokens</p>
-            <template x-if="tokenLoading && !chartsReady">
-              <div class="h-7 w-20 mx-auto bg-surface-600 rounded animate-pulse">
-              </div>
-            </template>
-            <template x-if="!tokenLoading || chartsReady">
-              <p
-                class="text-lg font-bold font-mono text-white"
-                x-text="tokenSummary.output.toLocaleString()"
-              >
-              </p>
-            </template>
-          </div>
-          <div class="text-center">
-            <p class="text-xs text-gray-500 mb-1">Cache Write</p>
-            <template x-if="tokenLoading && !chartsReady">
-              <div class="h-7 w-20 mx-auto bg-surface-600 rounded animate-pulse">
-              </div>
-            </template>
-            <template x-if="!tokenLoading || chartsReady">
-              <p
-                class="text-lg font-bold font-mono text-white"
-                x-text="tokenSummary.cacheCreation.toLocaleString()"
-              >
-              </p>
-            </template>
-          </div>
-          <div class="text-center">
-            <p class="text-xs text-gray-500 mb-1">Cache Hit Rate</p>
-            <template x-if="tokenLoading && !chartsReady">
-              <div class="h-7 w-20 mx-auto bg-surface-600 rounded animate-pulse">
-              </div>
-            </template>
-            <template x-if="!tokenLoading || chartsReady">
-              <p
-                class="text-lg font-bold font-mono text-white"
-                x-text="formatHitRate(tokenSummary.cacheRead, tokenSummary.cacheCreation)"
-              >
-              </p>
-            </template>
-          </div>
+          ${usageSummaryMetric(
+            "requests",
+            "Requests",
+            "tokenSummary.requests.toLocaleString()",
+            "w-16",
+          )}
+          ${usageSummaryMetric(
+            "total",
+            "Total Tokens",
+            "tokenSummary.total.toLocaleString()",
+            "w-20",
+          )}
+          ${usageSummaryMetric(
+            "input",
+            "Input Tokens",
+            "tokenSummary.input.toLocaleString()",
+            "w-20",
+          )}
+          ${usageSummaryMetric(
+            "output",
+            "Output Tokens",
+            "tokenSummary.output.toLocaleString()",
+            "w-20",
+          )}
+          ${usageSummaryMetric(
+            "cacheCreation",
+            "Cache Write",
+            "tokenSummary.cacheCreation.toLocaleString()",
+            "w-20",
+          )}
+          ${usageSummaryMetric(
+            "cacheHitRate",
+            "Cache Hit Rate",
+            "formatHitRate(tokenSummary.cacheRead, tokenSummary.cacheCreation)",
+            "w-20",
+          )}
         </div>
       </div>
     </div>

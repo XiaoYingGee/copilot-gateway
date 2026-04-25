@@ -41,6 +41,39 @@ export function dashboardAssets() {
       return total > 0 ? ((cacheRead / total) * 100).toFixed(1) + '%' : '\\u2014';
     }
 
+    const TOKEN_CHART_METRICS = {
+      requests: { label: 'Requests', kind: 'count' },
+      total: { label: 'Total Tokens', kind: 'tokens' },
+      input: { label: 'Input Tokens', kind: 'tokens' },
+      output: { label: 'Output Tokens', kind: 'tokens' },
+      cacheCreation: { label: 'Cache Write', kind: 'tokens' },
+      cacheHitRate: { label: 'Cache Hit Rate', kind: 'percent' },
+    };
+
+    function tokenChartMetricRecordValue(record, metric) {
+      if (metric === 'requests') return record.requests;
+      if (metric === 'input') return record.inputTokens;
+      if (metric === 'output') return record.outputTokens;
+      if (metric === 'cacheCreation') return record.cacheCreationTokens ?? 0;
+      return record.inputTokens + record.outputTokens;
+    }
+
+    function tokenChartMetricDetailValue(detail, metric) {
+      if (metric !== 'cacheHitRate') return null;
+      const total = detail.cacheRead + detail.cacheCreation;
+      return total > 0 ? (detail.cacheRead / total) * 100 : null;
+    }
+
+    function tokenChartMetricLabel(metric) {
+      return TOKEN_CHART_METRICS[metric]?.label || TOKEN_CHART_METRICS.total.label;
+    }
+
+    function formatTokenChartAxisValue(value, metric) {
+      if (TOKEN_CHART_METRICS[metric]?.kind === 'percent') return value.toFixed(0) + '%';
+      if (TOKEN_CHART_METRICS[metric]?.kind === 'count') return Math.round(value).toLocaleString();
+      return formatTokenCount(value);
+    }
+
     function tooltipLabelWidth(chart) {
       return chart.data.datasets.reduce((maxLen, ds) => Math.max(maxLen, String(ds.label || '').length), 0);
     }
@@ -145,6 +178,7 @@ export function dashboardAssets() {
           codexModels: [],
           codexModel: '',
           tokenRange: 'today',
+          tokenChartMetric: 'total',
           tokenData: [],
           chartsReady: false,
           tokenLoading: false,
@@ -831,7 +865,7 @@ export function dashboardAssets() {
                     return bucketMap;
                   },
 
-                  aggregateBuckets(records, dimension) {
+                  aggregateBuckets(records, dimension, metric = this.tokenChartMetric) {
                     const isDaily = this.tokenRange !== 'today';
                     const bucketMap = this.buildBucketMap();
                     const agg = new Map();
@@ -846,7 +880,9 @@ export function dashboardAssets() {
                       if (!agg.has(bucket)) continue;
                       const m = agg.get(bucket);
                       const val = r[dimension];
-                      m.set(val, (m.get(val) || 0) + r.inputTokens + r.outputTokens);
+                      if (metric !== 'cacheHitRate') {
+                        m.set(val, (m.get(val) || 0) + tokenChartMetricRecordValue(r, metric));
+                      }
                       const dm = detail.get(bucket);
                       const prev = dm.get(val) || { requests: 0, input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
                       prev.requests += r.requests;
@@ -856,7 +892,42 @@ export function dashboardAssets() {
                       prev.cacheCreation += r.cacheCreationTokens ?? 0;
                       dm.set(val, prev);
                     }
+                    if (metric === 'cacheHitRate') {
+                      for (const [bucket, values] of detail) {
+                        const m = agg.get(bucket);
+                        for (const [val, item] of values) {
+                          m.set(val, tokenChartMetricDetailValue(item, metric));
+                        }
+                      }
+                    }
                     return { bucketMap, agg, detail };
+                  },
+
+                  hasTokenChartMetricData(detail, dimensionValue) {
+                    if (this.tokenChartMetric !== 'cacheHitRate') return null;
+                    for (const values of detail.values()) {
+                      const item = values.get(dimensionValue);
+                      if (item && item.cacheRead + item.cacheCreation > 0) return true;
+                    }
+                    return false;
+                  },
+
+                  tokenChartBucketValue(agg, bucket, dimensionValue) {
+                    const value = agg.get(bucket)?.get(dimensionValue);
+                    if (value !== undefined) return value;
+                    return this.tokenChartMetric === 'cacheHitRate' ? null : 0;
+                  },
+
+                  applyTokenChartMetricOptions(chart) {
+                    const metric = this.tokenChartMetric;
+                    chart.options.scales.y.stacked = metric !== 'cacheHitRate';
+                    chart.options.scales.y.title.text = tokenChartMetricLabel(metric);
+                    chart.options.scales.y.suggestedMax = metric === 'cacheHitRate' ? 100 : undefined;
+                    chart.options.scales.y.ticks.callback = (v) => formatTokenChartAxisValue(Number(v), metric);
+                    for (const ds of chart.data.datasets) {
+                      ds.fill = metric === 'cacheHitRate' ? false : 'stack';
+                      ds.spanGaps = metric === 'cacheHitRate';
+                    }
                   },
 
                   updateSummary() {
@@ -887,12 +958,13 @@ export function dashboardAssets() {
                       const filtered = this.tokenData.filter((r) => !this.hiddenModels.has(r.model));
                       const { agg, detail } = this.aggregateBuckets(filtered, 'keyId');
                       _detailMaps.key = detail;
+                      this.applyTokenChartMetricOptions(_charts.key);
                       for (let i = 0; i < _charts.key.data.datasets.length; i++) {
                         const ds = _charts.key.data.datasets[i];
-                        ds.data = bucketKeysArr.map((k) => agg.get(k)?.get(ds._keyId) || 0);
+                        ds.data = bucketKeysArr.map((k) => this.tokenChartBucketValue(agg, k, ds._keyId));
                         const userHidden = this.hiddenKeys.has(ds._keyId);
-                        const allZero = ds.data.every((v) => v === 0);
-                        _charts.key.setDatasetVisibility(i, !userHidden && !allZero);
+                        const hasData = this.hasTokenChartMetricData(detail, ds._keyId) ?? ds.data.some((v) => v !== 0);
+                        _charts.key.setDatasetVisibility(i, !userHidden && hasData);
                       }
                       _charts.key.update('none');
                     }
@@ -901,12 +973,13 @@ export function dashboardAssets() {
                       const filtered = this.tokenData.filter((r) => !this.hiddenKeys.has(r.keyId));
                       const { agg, detail } = this.aggregateBuckets(filtered, 'model');
                       _detailMaps.model = detail;
+                      this.applyTokenChartMetricOptions(_charts.model);
                       for (let i = 0; i < _charts.model.data.datasets.length; i++) {
                         const ds = _charts.model.data.datasets[i];
-                        ds.data = bucketKeysArr.map((k) => agg.get(k)?.get(ds._model) || 0);
+                        ds.data = bucketKeysArr.map((k) => this.tokenChartBucketValue(agg, k, ds._model));
                         const userHidden = this.hiddenModels.has(ds._model);
-                        const allZero = ds.data.every((v) => v === 0);
-                        _charts.model.setDatasetVisibility(i, !userHidden && !allZero);
+                        const hasData = this.hasTokenChartMetricData(detail, ds._model) ?? ds.data.some((v) => v !== 0);
+                        _charts.model.setDatasetVisibility(i, !userHidden && hasData);
                       }
                       _charts.model.update('none');
                     }
@@ -949,7 +1022,7 @@ export function dashboardAssets() {
                       const c = palette[i % palette.length];
                       return {
                         label: self.redactKeys ? keyId.slice(0, 8) : (keyNameMap.get(keyId) || keyId.slice(0, 8)),
-                        data: bucketKeysArr.map((k) => keyAgg.get(k)?.get(keyId) || 0),
+                        data: bucketKeysArr.map((k) => self.tokenChartBucketValue(keyAgg, k, keyId)),
                         borderColor: c,
                         backgroundColor: c + '40',
                         borderWidth: 2,
@@ -957,6 +1030,7 @@ export function dashboardAssets() {
                         pointHoverRadius: 5,
                         tension: 0.3,
                         fill: 'stack',
+                        spanGaps: self.tokenChartMetric === 'cacheHitRate',
                         _keyId: keyId,
                       };
                     });
@@ -965,7 +1039,7 @@ export function dashboardAssets() {
                       const c = palette[i % palette.length];
                       return {
                         label: model,
-                        data: bucketKeysArr.map((k) => modelAgg.get(k)?.get(model) || 0),
+                        data: bucketKeysArr.map((k) => self.tokenChartBucketValue(modelAgg, k, model)),
                         borderColor: c,
                         backgroundColor: c + '40',
                         borderWidth: 2,
@@ -973,6 +1047,7 @@ export function dashboardAssets() {
                         pointHoverRadius: 5,
                         tension: 0.3,
                         fill: 'stack',
+                        spanGaps: self.tokenChartMetric === 'cacheHitRate',
                         _model: model,
                       };
                     });
@@ -1006,7 +1081,7 @@ export function dashboardAssets() {
                           padding: 12,
                           beforeBodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
                           bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
-                          filter: (item) => item.parsed.y > 0,
+                          filter: (item) => item.parsed.y !== null && (self.tokenChartMetric === 'cacheHitRate' || item.parsed.y > 0),
                           itemSort: (a, b) => b.parsed.y - a.parsed.y,
                           callbacks: {
                             beforeBody: (items) => {
@@ -1018,7 +1093,7 @@ export function dashboardAssets() {
                               const dimKey = chartType === 'key' ? ctx.dataset._keyId : ctx.dataset._model;
                               const detailMap = _detailMaps[chartType];
                               const detail = detailMap?.get(bucket)?.get(dimKey);
-                              if (!detail) return ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString() + ' tokens';
+                              if (!detail) return ctx.dataset.label + ': ' + formatTokenChartAxisValue(ctx.parsed.y, self.tokenChartMetric);
                               return formatTooltipRow(String(ctx.dataset.label || ''), tooltipLabelWidth(ctx.chart), detail);
                             },
                           },
@@ -1032,13 +1107,20 @@ export function dashboardAssets() {
                           border: { color: 'rgba(255,255,255,0.06)' },
                         },
                         y: {
-                          stacked: true,
+                          stacked: self.tokenChartMetric !== 'cacheHitRate',
                           beginAtZero: true,
+                          suggestedMax: self.tokenChartMetric === 'cacheHitRate' ? 100 : undefined,
+                          title: {
+                            display: true,
+                            text: tokenChartMetricLabel(self.tokenChartMetric),
+                            color: '#9e9e9e',
+                            font: { size: 10, family: "'DM Sans', sans-serif" },
+                          },
                           grid: { color: 'rgba(255,255,255,0.04)' },
                           ticks: {
                             color: '#9e9e9e',
                             font: { size: 10, family: "'JetBrains Mono', monospace" },
-                            callback: (v) => formatTokenCount(Number(v)),
+                            callback: (v) => formatTokenChartAxisValue(Number(v), self.tokenChartMetric),
                           },
                           border: { color: 'rgba(255,255,255,0.06)' },
                         },
@@ -1088,6 +1170,12 @@ export function dashboardAssets() {
                     destroyCharts();
                     this.chartsReady = false;
                     this.loadTokenUsage();
+                  },
+
+                  switchTokenChartMetric(metric) {
+                    if (!TOKEN_CHART_METRICS[metric] || this.tokenChartMetric === metric) return;
+                    this.tokenChartMetric = metric;
+                    this.refreshChartsData();
                   },
 
                   async exportData() {
