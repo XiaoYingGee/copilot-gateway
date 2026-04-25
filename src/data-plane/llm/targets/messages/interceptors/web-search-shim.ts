@@ -1,25 +1,25 @@
 import {
-  ANTHROPIC_WEB_SEARCH_ERROR_CODES,
+  MESSAGES_WEB_SEARCH_ERROR_CODES,
 } from "../../../../../lib/messages-types.ts";
 import { isRecord } from "../../../../../lib/type-guards.ts";
 import type {
-  AnthropicAssistantContentBlock,
-  AnthropicClientTool,
-  AnthropicMessage,
-  AnthropicMessagesPayload,
-  AnthropicNativeWebSearchTool,
-  AnthropicResponse,
-  AnthropicSearchResultBlock,
-  AnthropicTextBlock,
-  AnthropicTextCitation,
-  AnthropicTool,
-  AnthropicToolResultBlock,
-  AnthropicUserContentBlock,
-  AnthropicWebSearchErrorCode,
-  AnthropicWebSearchResultBlock,
-  AnthropicWebSearchToolResultError,
+  MessagesAssistantContentBlock,
+  MessagesClientTool,
+  MessagesMessage,
+  MessagesNativeWebSearchTool,
+  MessagesPayload,
+  MessagesResponse,
+  MessagesSearchResultBlock,
+  MessagesTextBlock,
+  MessagesTextCitation,
+  MessagesTool,
+  MessagesToolResultBlock,
+  MessagesUserContentBlock,
+  MessagesWebSearchErrorCode,
+  MessagesWebSearchResultBlock,
+  MessagesWebSearchToolResultError,
 } from "../../../../../lib/messages-types.ts";
-import { collectAnthropicEventsToResponse } from "../../../sources/messages/collect/from-events.ts";
+import { collectMessagesEventsToResponse } from "../../../sources/messages/collect/from-events.ts";
 import { internalErrorResult } from "../../../shared/errors/result.ts";
 import { toInternalDebugError } from "../../../shared/errors/internal-debug-error.ts";
 import { jsonFrame, type StreamFrame } from "../../../shared/stream/types.ts";
@@ -38,7 +38,7 @@ const PAYLOAD_PREFIX = "cgws1";
 
 type SearchResultOwnership = "owned" | "foreign";
 
-type NativeWebSearchToolVersion = AnthropicNativeWebSearchTool["type"];
+type NativeWebSearchToolVersion = MessagesNativeWebSearchTool["type"];
 
 interface ShimWebSearchResultPayload {
   content: Array<{ type: "text"; text: string }>;
@@ -51,7 +51,7 @@ interface ShimWebSearchCitationPayload {
 }
 
 interface OwnedReplayToolResult {
-  upstreamToolResult: AnthropicToolResultBlock;
+  upstreamToolResult: MessagesToolResultBlock;
   searchResultOwnership: SearchResultOwnership[];
 }
 
@@ -84,7 +84,7 @@ export type MessagesWebSearchShimState =
 export type PrepareMessagesWebSearchShimRequestResult =
   | {
     type: "ok";
-    payload: AnthropicMessagesPayload;
+    payload: MessagesPayload;
     state: MessagesWebSearchShimState;
   }
   | {
@@ -99,7 +99,7 @@ const inactiveMessagesWebSearchShimState = (): MessagesWebSearchShimState => ({
 // Official Anthropic API exposes native web_search to the model with this
 // description and query-only input schema, and requires the native tool name to
 // be exactly `web_search` when present.
-const buildUpstreamWebSearchToolDefinition = (): AnthropicClientTool => ({
+const buildUpstreamWebSearchToolDefinition = (): MessagesClientTool => ({
   name: WEB_SEARCH_TOOL_NAME,
   description:
     "The web_search tool searches the internet and returns up-to-date information from web sources.",
@@ -256,25 +256,25 @@ export const decodeWebSearchCitationPayload = (
 };
 
 const isNativeWebSearchToolDefinition = (
-  tool: AnthropicTool,
-): tool is AnthropicNativeWebSearchTool =>
+  tool: MessagesTool,
+): tool is MessagesNativeWebSearchTool =>
   tool.type === "web_search_20250305" || tool.type === "web_search_20260209";
 
-const anthropicWebSearchErrorCodeSet = new Set<string>(
-  ANTHROPIC_WEB_SEARCH_ERROR_CODES,
+const messagesWebSearchErrorCodeSet = new Set<string>(
+  MESSAGES_WEB_SEARCH_ERROR_CODES,
 );
 
-const isAnthropicWebSearchErrorCode = (
+const isMessagesWebSearchErrorCode = (
   value: unknown,
-): value is AnthropicWebSearchErrorCode =>
-  typeof value === "string" && anthropicWebSearchErrorCodeSet.has(value);
+): value is MessagesWebSearchErrorCode =>
+  typeof value === "string" && messagesWebSearchErrorCodeSet.has(value);
 
 const isWebSearchToolResultError = (
   value: unknown,
-): value is AnthropicWebSearchToolResultError =>
+): value is MessagesWebSearchToolResultError =>
   isRecord(value) &&
   value.type === "web_search_tool_result_error" &&
-  isAnthropicWebSearchErrorCode(value.error_code);
+  isMessagesWebSearchErrorCode(value.error_code);
 
 const toUpstreamToolUseId = (toolUseId: string): string =>
   toolUseId.startsWith("srvtoolu_")
@@ -287,25 +287,25 @@ const toNativeServerToolUseId = (toolUseId: string): string =>
     : toolUseId;
 
 const toUserContentBlocks = (
-  content: string | AnthropicUserContentBlock[],
-): AnthropicUserContentBlock[] =>
+  content: string | MessagesUserContentBlock[],
+): MessagesUserContentBlock[] =>
   typeof content === "string"
     ? [{ type: "text", text: content }]
     : [...content];
 
 const mapTextBlockCitations = (
-  block: AnthropicTextBlock,
-  mapCitation: (citation: AnthropicTextCitation) => AnthropicTextCitation,
-): AnthropicTextBlock => ({
+  block: MessagesTextBlock,
+  mapCitation: (citation: MessagesTextCitation) => MessagesTextCitation,
+): MessagesTextBlock => ({
   type: "text",
   text: block.text,
   ...(block.citations ? { citations: block.citations.map(mapCitation) } : {}),
 });
 
 const buildUpstreamSearchResultBlock = (
-  result: AnthropicWebSearchResultBlock,
+  result: MessagesWebSearchResultBlock,
   decoded: NonNullable<ReturnType<typeof decodeWebSearchResultPayload>>,
-): AnthropicSearchResultBlock => ({
+): MessagesSearchResultBlock => ({
   type: "search_result",
   source: result.url,
   title: result.title,
@@ -314,24 +314,24 @@ const buildUpstreamSearchResultBlock = (
 });
 
 const buildUserToolResultMessage = (
-  toolResults: AnthropicToolResultBlock[],
-): Extract<AnthropicMessage, { role: "user" }> => ({
+  toolResults: MessagesToolResultBlock[],
+): Extract<MessagesMessage, { role: "user" }> => ({
   role: "user",
   content: toolResults,
 });
 
 const buildNativeWebSearchErrorPayload = (
-  errorCode: AnthropicWebSearchErrorCode,
-): AnthropicWebSearchToolResultError => ({
+  errorCode: MessagesWebSearchErrorCode,
+): MessagesWebSearchToolResultError => ({
   type: "web_search_tool_result_error",
   error_code: errorCode,
 });
 
 const buildNativeWebSearchErrorResultBlock = (
   toolUseId: string,
-  errorCode: AnthropicWebSearchErrorCode,
+  errorCode: MessagesWebSearchErrorCode,
 ): Extract<
-  AnthropicAssistantContentBlock,
+  MessagesAssistantContentBlock,
   { type: "web_search_tool_result" }
 > => ({
   type: "web_search_tool_result",
@@ -343,7 +343,7 @@ const buildNativeWebSearchErrorResultBlock = (
 const buildNativeWebSearchServerToolUseBlock = (
   toolUseId: string,
   query: string,
-): Extract<AnthropicAssistantContentBlock, { type: "server_tool_use" }> => ({
+): Extract<MessagesAssistantContentBlock, { type: "server_tool_use" }> => ({
   type: "server_tool_use",
   id: toNativeServerToolUseId(toolUseId),
   name: WEB_SEARCH_TOOL_NAME,
@@ -352,7 +352,7 @@ const buildNativeWebSearchServerToolUseBlock = (
 
 const buildNativeWebSearchResultBlock = (
   result: Extract<WebSearchProviderResult, { type: "ok" }>["results"][number],
-): AnthropicWebSearchResultBlock => ({
+): MessagesWebSearchResultBlock => ({
   type: "web_search_result",
   url: result.source,
   title: result.title,
@@ -366,7 +366,7 @@ const buildNativeWebSearchResultBlock = (
 // safest replay rule is structural: only decode results that are paired with
 // a same-message `server_tool_use` we can turn back into upstream tool history.
 const collectOwnedReplayResultsByServerToolUseId = (
-  content: AnthropicAssistantContentBlock[],
+  content: MessagesAssistantContentBlock[],
 ): Map<string, OwnedReplayToolResult> => {
   const pairedServerToolUseIds = new Set(
     content.flatMap((block) =>
@@ -402,7 +402,7 @@ const collectOwnedReplayResultsByServerToolUseId = (
   return ownedReplayResultsByServerToolUseId;
 };
 
-const messageHasOwnedReplayMarkers = (message: AnthropicMessage): boolean => {
+const messageHasOwnedReplayMarkers = (message: MessagesMessage): boolean => {
   if (message.role !== "assistant" || !Array.isArray(message.content)) {
     return false;
   }
@@ -421,8 +421,8 @@ const messageHasOwnedReplayMarkers = (message: AnthropicMessage): boolean => {
 };
 
 const decodeOwnedReplayCitation = (
-  citation: AnthropicTextCitation,
-): AnthropicTextCitation => {
+  citation: MessagesTextCitation,
+): MessagesTextCitation => {
   if (citation.type !== "web_search_result_location") {
     return citation;
   }
@@ -445,7 +445,7 @@ const decodeOwnedReplayCitation = (
 
 const decodeOwnedReplayToolResult = (
   block: Extract<
-    AnthropicAssistantContentBlock,
+    MessagesAssistantContentBlock,
     { type: "web_search_tool_result" }
   >,
 ): OwnedReplayToolResult | null => {
@@ -484,7 +484,7 @@ const decodeOwnedReplayToolResult = (
 };
 
 const collectForeignSearchResultOwnership = (
-  content: string | AnthropicUserContentBlock[],
+  content: string | MessagesUserContentBlock[],
 ): SearchResultOwnership[] => {
   if (typeof content === "string") {
     return [];
@@ -502,31 +502,31 @@ const collectForeignSearchResultOwnership = (
 };
 
 const prependToolResultsToUserMessage = (
-  message: Extract<AnthropicMessage, { role: "user" }>,
-  toolResults: AnthropicToolResultBlock[],
-): Extract<AnthropicMessage, { role: "user" }> => ({
+  message: Extract<MessagesMessage, { role: "user" }>,
+  toolResults: MessagesToolResultBlock[],
+): Extract<MessagesMessage, { role: "user" }> => ({
   role: "user",
   content: [...toolResults, ...toUserContentBlocks(message.content)],
 });
 
 const canPrependToolResultsToUserMessage = (
-  message: Extract<AnthropicMessage, { role: "user" }>,
+  message: Extract<MessagesMessage, { role: "user" }>,
 ): boolean =>
   Array.isArray(message.content) &&
   message.content.some((block) => block.type === "tool_result");
 
 interface PreparedMessagesWebSearchReplay {
   hasOwnedReplay: boolean;
-  messages: AnthropicMessage[];
+  messages: MessagesMessage[];
   priorSearchUseCount: number;
   requestSearchResultOwnership: SearchResultOwnership[];
 }
 
 const prepareMessagesWebSearchReplay = (
-  messages: AnthropicMessage[],
+  messages: MessagesMessage[],
 ): PreparedMessagesWebSearchReplay => {
   const hasOwnedReplay = messages.some(messageHasOwnedReplayMarkers);
-  const rewrittenMessages: AnthropicMessage[] = [];
+  const rewrittenMessages: MessagesMessage[] = [];
   const requestSearchResultOwnership: SearchResultOwnership[] = [];
   let pendingOwnedReplayToolResults: OwnedReplayToolResult[] = [];
   let priorSearchUseCount = 0;
@@ -605,7 +605,7 @@ const prepareMessagesWebSearchReplay = (
     }
 
     const rewrittenContent = message.content.flatMap(
-      (block): AnthropicAssistantContentBlock[] => {
+      (block): MessagesAssistantContentBlock[] => {
         if (
           block.type === "server_tool_use" &&
           ownedReplayResultsByServerToolUseId.has(block.id)
@@ -650,11 +650,11 @@ const prepareMessagesWebSearchReplay = (
 };
 
 type ValidateNativeWebSearchToolDefinitionsResult =
-  | { type: "ok"; nativeTool?: AnthropicNativeWebSearchTool }
+  | { type: "ok"; nativeTool?: MessagesNativeWebSearchTool }
   | { type: "invalid-request"; message: string };
 
 const validateNativeWebSearchToolDefinitions = (
-  payload: AnthropicMessagesPayload,
+  payload: MessagesPayload,
 ): ValidateNativeWebSearchToolDefinitionsResult => {
   const nativeToolEntries = (payload.tools ?? []).flatMap((tool, index) =>
     isNativeWebSearchToolDefinition(tool) ? [{ tool, index }] : []
@@ -702,9 +702,9 @@ const validateNativeWebSearchToolDefinitions = (
 };
 
 const rewriteMessagesWebSearchToolDefinitions = (
-  tools: AnthropicMessagesPayload["tools"],
-  nativeTool?: AnthropicNativeWebSearchTool,
-): AnthropicMessagesPayload["tools"] =>
+  tools: MessagesPayload["tools"],
+  nativeTool?: MessagesNativeWebSearchTool,
+): MessagesPayload["tools"] =>
   nativeTool
     ? (tools ?? []).map((tool) =>
       isNativeWebSearchToolDefinition(tool)
@@ -714,7 +714,7 @@ const rewriteMessagesWebSearchToolDefinitions = (
     : tools;
 
 const buildMessagesWebSearchShimState = (
-  nativeTool: AnthropicNativeWebSearchTool | undefined,
+  nativeTool: MessagesNativeWebSearchTool | undefined,
   replay: PreparedMessagesWebSearchReplay,
 ): MessagesWebSearchShimState => {
   if (!nativeTool && !replay.hasOwnedReplay) {
@@ -749,7 +749,7 @@ const buildMessagesWebSearchShimState = (
 };
 
 export const prepareMessagesWebSearchShimRequest = (
-  payload: AnthropicMessagesPayload,
+  payload: MessagesPayload,
 ): PrepareMessagesWebSearchShimRequestResult => {
   const validatedNativeTools = validateNativeWebSearchToolDefinitions(payload);
   if (validatedNativeTools.type !== "ok") {
@@ -789,9 +789,9 @@ export const prepareMessagesWebSearchShimRequest = (
 };
 
 const rewriteResponseCitationToNative = (
-  citation: AnthropicTextCitation,
+  citation: MessagesTextCitation,
   state: MessagesWebSearchShimState,
-): AnthropicTextCitation => {
+): MessagesTextCitation => {
   if (state.mode === "inactive" || citation.type !== "search_result_location") {
     return citation;
   }
@@ -823,7 +823,7 @@ const buildNativeWebSearchResultBlockFromProviderResult = (
   result: WebSearchProviderResult,
   toolUseId: string,
 ): Extract<
-  AnthropicAssistantContentBlock,
+  MessagesAssistantContentBlock,
   { type: "web_search_tool_result" }
 > => {
   if (result.type === "error") {
@@ -839,10 +839,10 @@ const buildNativeWebSearchResultBlockFromProviderResult = (
 };
 
 export const rewriteMessagesWebSearchResponseToNative = async (
-  response: AnthropicResponse,
+  response: MessagesResponse,
   state: MessagesWebSearchShimState,
   provider?: WebSearchProvider,
-): Promise<AnthropicResponse> => {
+): Promise<MessagesResponse> => {
   if (state.mode === "inactive") {
     return response;
   }
@@ -855,7 +855,7 @@ export const rewriteMessagesWebSearchResponseToNative = async (
   let interceptedSearches = 0;
   let hasRemainingClientToolUse = false;
   let currentSearchUseCount = state.priorSearchUseCount;
-  const rewrittenContent: AnthropicAssistantContentBlock[] = [];
+  const rewrittenContent: MessagesAssistantContentBlock[] = [];
 
   for (const block of response.content) {
     if (block.type === "text") {
@@ -956,16 +956,16 @@ export const rewriteMessagesWebSearchResponseToNative = async (
 
 export const collectAndRewriteMessagesWebSearchEventsToNative =
   async function* (
-    frames: AsyncIterable<StreamFrame<AnthropicResponse>>,
+    frames: AsyncIterable<StreamFrame<MessagesResponse>>,
     state: MessagesWebSearchShimState,
     provider?: WebSearchProvider,
-  ): AsyncGenerator<StreamFrame<AnthropicResponse>> {
+  ): AsyncGenerator<StreamFrame<MessagesResponse>> {
     // Native-looking web_search replay is order-sensitive: we may need to
     // execute multiple searches, inject result blocks, and then rewrite later
     // text citations against the final search-result ordering. That forces us
     // to buffer the whole upstream Messages stream here and trade first-byte
     // latency for a single coherent rewritten response.
-    const response = await collectAnthropicEventsToResponse(frames);
+    const response = await collectMessagesEventsToResponse(frames);
     yield jsonFrame(
       await rewriteMessagesWebSearchResponseToNative(response, state, provider),
     );
@@ -1021,10 +1021,10 @@ const resolveActiveMessagesWebSearchProvider = async (
  */
 export const withMessagesWebSearchShim: TargetInterceptor<
   EmitToMessagesInput,
-  AnthropicResponse
+  MessagesResponse
 > = async (ctx, run) => {
   const prepared = prepareMessagesWebSearchShimRequest(
-    ctx.payload as AnthropicMessagesPayload,
+    ctx.payload as MessagesPayload,
   );
 
   if (prepared.type === "invalid-request") {

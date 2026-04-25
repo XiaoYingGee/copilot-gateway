@@ -1,14 +1,14 @@
 import { assertEquals } from "@std/assert";
-import type { AnthropicResponse } from "../../../../../lib/messages-types.ts";
+import type { MessagesResponse } from "../../../../../lib/messages-types.ts";
 import { collectSSE } from "../../../shared/stream/collect-sse.ts";
 import { jsonFrame } from "../../../shared/stream/types.ts";
 import {
-  collectAnthropicEventsToResponse,
-  expandAnthropicFrames,
+  collectMessagesEventsToResponse,
+  expandMessagesFrames,
 } from "./from-events.ts";
 
-Deno.test("collectAnthropicEventsToResponse round-trips native web search JSON frames", async () => {
-  const response: AnthropicResponse = {
+Deno.test("collectMessagesEventsToResponse round-trips native web search JSON frames", async () => {
+  const response: MessagesResponse = {
     id: "msg_roundtrip",
     type: "message",
     role: "assistant",
@@ -52,15 +52,15 @@ Deno.test("collectAnthropicEventsToResponse round-trips native web search JSON f
     ],
   };
 
-  const collected = await collectAnthropicEventsToResponse((async function* () {
+  const collected = await collectMessagesEventsToResponse((async function* () {
     yield jsonFrame(response);
   })());
 
   assertEquals(collected, response);
 });
 
-Deno.test("collectAnthropicEventsToResponse preserves citations when text is empty", async () => {
-  const response: AnthropicResponse = {
+Deno.test("collectMessagesEventsToResponse preserves citations when text is empty", async () => {
+  const response: MessagesResponse = {
     id: "msg_empty_text_citations",
     type: "message",
     role: "assistant",
@@ -84,15 +84,15 @@ Deno.test("collectAnthropicEventsToResponse preserves citations when text is emp
     }],
   };
 
-  const collected = await collectAnthropicEventsToResponse((async function* () {
+  const collected = await collectMessagesEventsToResponse((async function* () {
     yield jsonFrame(response);
   })());
 
   assertEquals(collected, response);
 });
 
-Deno.test("expandAnthropicFrames emits native-like citations_delta frames", async () => {
-  const response: AnthropicResponse = {
+Deno.test("expandMessagesFrames emits native-like citations_delta frames", async () => {
+  const response: MessagesResponse = {
     id: "msg_emit_citations",
     type: "message",
     role: "assistant",
@@ -127,7 +127,7 @@ Deno.test("expandAnthropicFrames emits native-like citations_delta frames", asyn
     }],
   };
 
-  const frames = await collectSSE(expandAnthropicFrames((async function* () {
+  const frames = await collectSSE(expandMessagesFrames((async function* () {
     yield jsonFrame(response);
   })()));
 

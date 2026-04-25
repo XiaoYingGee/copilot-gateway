@@ -324,7 +324,3 @@ export const collectMessagesEventsToResponse = async (
   const collected = await collectSSE(expandMessagesFrames(frames));
   return await reassembleMessagesSSE(sseFramesToStream(collected));
 };
-
-export const anthropicResponseToSSEFrames = messagesResponseToSSEFrames;
-export const expandAnthropicFrames = expandMessagesFrames;
-export const collectAnthropicEventsToResponse = collectMessagesEventsToResponse;

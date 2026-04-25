@@ -323,37 +323,3 @@ export interface MessagesStreamState {
   pendingReasoningOpaque?: string;
   usageSent?: boolean;
 }
-
-export const ANTHROPIC_WEB_SEARCH_ERROR_CODES = MESSAGES_WEB_SEARCH_ERROR_CODES;
-export { MESSAGES_THINKING_PLACEHOLDER as THINKING_PLACEHOLDER };
-
-export type AnthropicMessagesPayload = MessagesPayload;
-export type AnthropicMessagesTargetPayload = MessagesTargetPayload;
-export type AnthropicSearchResultLocationCitation =
-  MessagesSearchResultLocationCitation;
-export type AnthropicWebSearchResultLocation = MessagesWebSearchResultLocation;
-export type AnthropicTextCitation = MessagesTextCitation;
-export type AnthropicTextBlock = MessagesTextBlock;
-export type AnthropicImageBlock = MessagesImageBlock;
-export type AnthropicSearchResultBlock = MessagesSearchResultBlock;
-export type AnthropicWebSearchResultBlock = MessagesWebSearchResultBlock;
-export type AnthropicToolResultContentBlock = MessagesToolResultContentBlock;
-export type AnthropicToolResultBlock = MessagesToolResultBlock;
-export type AnthropicToolUseBlock = MessagesToolUseBlock;
-export type AnthropicServerToolUseBlock = MessagesServerToolUseBlock;
-export type AnthropicWebSearchErrorCode = MessagesWebSearchErrorCode;
-export type AnthropicWebSearchToolResultError = MessagesWebSearchToolResultError;
-export type AnthropicWebSearchToolResultBlock = MessagesWebSearchToolResultBlock;
-export type AnthropicThinkingBlock = MessagesThinkingBlock;
-export type AnthropicRedactedThinkingBlock = MessagesRedactedThinkingBlock;
-export type AnthropicUserContentBlock = MessagesUserContentBlock;
-export type AnthropicAssistantContentBlock = MessagesAssistantContentBlock;
-export type AnthropicUserMessage = MessagesUserMessage;
-export type AnthropicAssistantMessage = MessagesAssistantMessage;
-export type AnthropicMessage = MessagesMessage;
-export type AnthropicClientTool = MessagesClientTool;
-export type AnthropicNativeWebSearchTool = MessagesNativeWebSearchTool;
-export type AnthropicTool = MessagesTool;
-export type AnthropicUsageServerToolUse = MessagesUsageServerToolUse;
-export type AnthropicUsage = MessagesUsage;
-export type AnthropicResponse = MessagesResponse;

@@ -1,18 +1,18 @@
 import { assertEquals, assertExists } from "@std/assert";
 import type {
-  AnthropicAssistantContentBlock,
-  AnthropicClientTool,
-  AnthropicMessagesPayload,
-  AnthropicResponse,
-  AnthropicTextBlock,
-  AnthropicToolResultBlock,
-  AnthropicToolResultContentBlock,
-  AnthropicUserContentBlock,
+  MessagesAssistantContentBlock,
+  MessagesClientTool,
+  MessagesPayload,
+  MessagesResponse,
+  MessagesTextBlock,
+  MessagesToolResultBlock,
+  MessagesToolResultContentBlock,
+  MessagesUserContentBlock,
 } from "../../../../../lib/messages-types.ts";
 import {
-  anthropicResponseToSSEFrames,
-  collectAnthropicEventsToResponse,
-  expandAnthropicFrames,
+  collectMessagesEventsToResponse,
+  expandMessagesFrames,
+  messagesResponseToSSEFrames,
 } from "../../../sources/messages/collect/from-events.ts";
 import { collectSSE } from "../../../shared/stream/collect-sse.ts";
 import { type WebSearchProvider } from "../../../../tools/web-search/provider.ts";
@@ -42,7 +42,7 @@ const encodeUnsignedPayload = (payload: unknown): string =>
       .replace(/=+$/g, "")
   }`;
 
-const makeNativeReplayPayload = (): AnthropicMessagesPayload => ({
+const makeNativeReplayPayload = (): MessagesPayload => ({
   model: "claude-test",
   max_tokens: 64,
   tools: [{ type: "web_search_20260209", max_uses: 2 }],
@@ -117,7 +117,7 @@ const activeMessagesWebSearchShimState = (
 
 const makeUpstreamToolUseResponse = (
   toolUses: Array<{ name: string; id: string; input: Record<string, unknown> }>,
-): AnthropicResponse => ({
+): MessagesResponse => ({
   id: "msg_upstream",
   type: "message",
   role: "assistant",
@@ -238,7 +238,7 @@ Deno.test("prepareMessagesWebSearchShimRequest rewrites both native tool version
 
     assertEquals(prepared.type, "ok");
     if (prepared.type !== "ok") throw new Error("expected ok result");
-    const rewrittenTool = prepared.payload.tools?.[0] as AnthropicClientTool;
+    const rewrittenTool = prepared.payload.tools?.[0] as MessagesClientTool;
     assertEquals(rewrittenTool.name, "web_search");
     assertEquals(
       rewrittenTool.description,
@@ -331,23 +331,23 @@ Deno.test("prepareMessagesWebSearchShimRequest decodes our native-looking replay
   const user = prepared.payload.messages[2];
 
   assertEquals(
-    (assistant.content as AnthropicAssistantContentBlock[])[0].type,
+    (assistant.content as MessagesAssistantContentBlock[])[0].type,
     "tool_use",
   );
   assertEquals(
-    ((assistant.content as AnthropicAssistantContentBlock[])[
+    ((assistant.content as MessagesAssistantContentBlock[])[
       1
-    ] as AnthropicTextBlock).citations?.[0]?.type,
+    ] as MessagesTextBlock).citations?.[0]?.type,
     "search_result_location",
   );
   assertEquals(
-    (((user.content as AnthropicUserContentBlock[])[
+    (((user.content as MessagesUserContentBlock[])[
       0
-    ] as AnthropicToolResultBlock)
-      .content as AnthropicToolResultContentBlock[])[0].type,
+    ] as MessagesToolResultBlock)
+      .content as MessagesToolResultContentBlock[])[0].type,
     "search_result",
   );
-  assertEquals((user.content as AnthropicUserContentBlock[]).length, 2);
+  assertEquals((user.content as MessagesUserContentBlock[]).length, 2);
   assertEquals(prepared.state.mode, "active");
   if (prepared.state.mode !== "active") {
     throw new Error("expected active state");
@@ -357,7 +357,7 @@ Deno.test("prepareMessagesWebSearchShimRequest decodes our native-looking replay
 });
 
 Deno.test("prepareMessagesWebSearchShimRequest leaves native-looking replay errors untouched", () => {
-  const payload: AnthropicMessagesPayload = {
+  const payload: MessagesPayload = {
     model: "claude-test",
     max_tokens: 64,
     messages: [
@@ -394,7 +394,7 @@ Deno.test("prepareMessagesWebSearchShimRequest leaves native-looking replay erro
 });
 
 Deno.test("prepareMessagesWebSearchShimRequest passes through foreign native-looking history that does not decode", () => {
-  const payload: AnthropicMessagesPayload = {
+  const payload: MessagesPayload = {
     model: "claude-test",
     max_tokens: 64,
     messages: [
@@ -435,7 +435,7 @@ Deno.test("prepareMessagesWebSearchShimRequest passes through foreign native-loo
 });
 
 Deno.test("prepareMessagesWebSearchShimRequest creates a separate user tool_result message when the trailing user message is not a tool_result turn", () => {
-  const payload: AnthropicMessagesPayload = {
+  const payload: MessagesPayload = {
     model: "claude-test",
     max_tokens: 64,
     messages: [
@@ -480,9 +480,9 @@ Deno.test("prepareMessagesWebSearchShimRequest creates a separate user tool_resu
   assertEquals(prepared.payload.messages.length, 4);
   assertEquals(prepared.payload.messages[2].role, "user");
   assertEquals(
-    ((prepared.payload.messages[2].content as AnthropicUserContentBlock[])[
+    ((prepared.payload.messages[2].content as MessagesUserContentBlock[])[
       0
-    ] as AnthropicToolResultBlock)
+    ] as MessagesToolResultBlock)
       .type,
     "tool_result",
   );
@@ -529,13 +529,13 @@ Deno.test("rewriteMessagesWebSearchResponseToNative keeps remaining client tool_
 
   assertEquals(rewritten.stop_reason, "tool_use");
   assertEquals(
-    rewritten.content.some((block: AnthropicAssistantContentBlock) =>
+    rewritten.content.some((block: MessagesAssistantContentBlock) =>
       block.type === "tool_use"
     ),
     true,
   );
   assertEquals(
-    rewritten.content.some((block: AnthropicAssistantContentBlock) =>
+    rewritten.content.some((block: MessagesAssistantContentBlock) =>
       block.type === "server_tool_use"
     ),
     true,
@@ -748,7 +748,7 @@ Deno.test("rewriteMessagesWebSearchResponseToNative rewrites search_result_locat
     fakeProviderOk,
   );
 
-  const textBlock = rewritten.content[0] as AnthropicTextBlock;
+  const textBlock = rewritten.content[0] as MessagesTextBlock;
   assertEquals(textBlock.citations?.[0]?.type, "web_search_result_location");
   assertEquals(textBlock.citations?.[1]?.type, "search_result_location");
 });
@@ -756,7 +756,7 @@ Deno.test("rewriteMessagesWebSearchResponseToNative rewrites search_result_locat
 Deno.test("collectAndRewriteMessagesWebSearchEventsToNative rewrites collected SSE frames once", async () => {
   const frames = collectAndRewriteMessagesWebSearchEventsToNative(
     toAsyncIterable(
-      anthropicResponseToSSEFrames(
+      messagesResponseToSSEFrames(
         makeUpstreamToolUseResponse([{
           name: "web_search",
           id: "toolu_1",
@@ -768,7 +768,7 @@ Deno.test("collectAndRewriteMessagesWebSearchEventsToNative rewrites collected S
     fakeProviderOk,
   );
 
-  const rewritten = await collectAnthropicEventsToResponse(frames);
+  const rewritten = await collectMessagesEventsToResponse(frames);
 
   assertEquals(rewritten.stop_reason, "pause_turn");
   assertEquals(rewritten.content[0].type, "server_tool_use");
@@ -849,7 +849,7 @@ Deno.test("withMessagesWebSearchShim allows replay-only history when the search 
   }, async () => ({
     type: "events",
     events: toAsyncIterable([
-      jsonFrame<AnthropicResponse>({
+      jsonFrame<MessagesResponse>({
         id: "msg_replay_only",
         type: "message",
         role: "assistant",
@@ -877,8 +877,8 @@ Deno.test("withMessagesWebSearchShim allows replay-only history when the search 
   assertEquals(result.type, "events");
   if (result.type !== "events") throw new Error("expected events result");
 
-  const rewritten = await collectAnthropicEventsToResponse(result.events);
-  const textBlock = rewritten.content[0] as AnthropicTextBlock;
+  const rewritten = await collectMessagesEventsToResponse(result.events);
+  const textBlock = rewritten.content[0] as MessagesTextBlock;
   assertEquals(textBlock.citations?.[0]?.type, "web_search_result_location");
 });
 
@@ -897,7 +897,7 @@ Deno.test("withMessagesWebSearchShim emits native-like citation deltas for repla
   }, async () => ({
     type: "events",
     events: toAsyncIterable([
-      jsonFrame<AnthropicResponse>({
+      jsonFrame<MessagesResponse>({
         id: "msg_replay_only_stream",
         type: "message",
         role: "assistant",
@@ -925,7 +925,7 @@ Deno.test("withMessagesWebSearchShim emits native-like citation deltas for repla
   assertEquals(result.type, "events");
   if (result.type !== "events") throw new Error("expected events result");
 
-  const frames = await collectSSE(expandAnthropicFrames(result.events));
+  const frames = await collectSSE(expandMessagesFrames(result.events));
   const citationFrame = frames.find((frame) => {
     if (frame.type !== "sse" || frame.event !== "content_block_delta") {
       return false;

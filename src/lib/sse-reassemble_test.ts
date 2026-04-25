@@ -1,21 +1,19 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import {
-  reassembleAnthropicSSE,
   reassembleChatCompletionsSSE,
   reassembleMessagesSSE,
   reassembleResponsesSSE,
 } from "./sse-reassemble.ts";
 import type {
-  AnthropicResponse,
-  AnthropicSearchResultBlock,
-  AnthropicSearchResultLocationCitation,
-  AnthropicServerToolUseBlock,
-  AnthropicTextBlock,
-  AnthropicTool,
-  AnthropicToolResultContentBlock,
-  AnthropicWebSearchResultBlock,
-  AnthropicWebSearchToolResultBlock,
   MessagesResponse,
+  MessagesSearchResultBlock,
+  MessagesSearchResultLocationCitation,
+  MessagesServerToolUseBlock,
+  MessagesTextBlock,
+  MessagesTool,
+  MessagesToolResultContentBlock,
+  MessagesWebSearchResultBlock,
+  MessagesWebSearchToolResultBlock,
 } from "./messages-types.ts";
 import type { ChatCompletionResponse } from "./chat-completions-types.ts";
 import type { ResponsesResult } from "./responses-types.ts";
@@ -45,18 +43,18 @@ type Expect<T extends true> = T;
 
 type _toolResultContentExcludesWebSearchResult = Expect<
   Equal<
-    Extract<AnthropicToolResultContentBlock, AnthropicWebSearchResultBlock>,
+    Extract<MessagesToolResultContentBlock, MessagesWebSearchResultBlock>,
     never
   >
 >;
 type _serverToolUseNameIsString = Expect<
-  Equal<AnthropicServerToolUseBlock["name"], string>
+  Equal<MessagesServerToolUseBlock["name"], string>
 >;
 type _serverToolUseInputIsQueryObject = Expect<
-  Equal<AnthropicServerToolUseBlock["input"], { query: string }>
+  Equal<MessagesServerToolUseBlock["input"], { query: string }>
 >;
 
-// ── reassembleMessagesSSE ──
+// ── Messages native web search types ──
 
 Deno.test("reassembleMessagesSSE reassembles text response", async () => {
   const body = makeSSEBody([
@@ -130,17 +128,17 @@ Deno.test("reassembleMessagesSSE reassembles text response", async () => {
   assertEquals(result.usage.output_tokens, 5);
 });
 
-// ── reassembleAnthropicSSE ──
+// ── reassembleMessagesSSE ──
 
-Deno.test("AnthropicTool supports both client and native web search shapes", () => {
-  const clientTool: AnthropicTool = {
+Deno.test("MessagesTool supports both client and native web search shapes", () => {
+  const clientTool: MessagesTool = {
     name: "get_weather",
     description: "Fetches weather",
     input_schema: { type: "object" },
     strict: true,
   };
 
-  const nativeWebSearchTool: AnthropicTool = {
+  const nativeWebSearchTool: MessagesTool = {
     type: "web_search_20250305",
     max_uses: 3,
     allowed_domains: ["example.com"],
@@ -161,7 +159,7 @@ Deno.test("AnthropicTool supports both client and native web search shapes", () 
 });
 
 Deno.test("Anthropic native web search shared shapes match Task 1 contracts", () => {
-  const searchCitation: AnthropicSearchResultLocationCitation = {
+  const searchCitation: MessagesSearchResultLocationCitation = {
     type: "search_result_location",
     url: "https://docs.example.com/api-guide",
     title: "API Guide",
@@ -171,7 +169,7 @@ Deno.test("Anthropic native web search shared shapes match Task 1 contracts", ()
     cited_text: "Error handling guidance",
   };
 
-  const searchResult: AnthropicSearchResultBlock = {
+  const searchResult: MessagesSearchResultBlock = {
     type: "search_result",
     source: "https://docs.example.com/api-guide",
     title: "API Guide",
@@ -179,14 +177,14 @@ Deno.test("Anthropic native web search shared shapes match Task 1 contracts", ()
     citations: { enabled: true },
   };
 
-  const serverToolUse: AnthropicServerToolUseBlock = {
+  const serverToolUse: MessagesServerToolUseBlock = {
     type: "server_tool_use",
     id: "srvtoolu_1",
     name: "web_search",
     input: { query: "latest API guide" },
   };
 
-  const webSearchToolResult: AnthropicWebSearchToolResultBlock = {
+  const webSearchToolResult: MessagesWebSearchToolResultBlock = {
     type: "web_search_tool_result",
     tool_use_id: "srvtoolu_1",
     content: {
@@ -205,78 +203,6 @@ Deno.test("Anthropic native web search shared shapes match Task 1 contracts", ()
       "web_search_tool_result_error",
     );
   }
-});
-
-Deno.test("reassembleAnthropicSSE reassembles text response", async () => {
-  const body = makeSSEBody([
-    {
-      event: "message_start",
-      data: {
-        type: "message_start",
-        message: {
-          id: "msg_1",
-          type: "message",
-          role: "assistant",
-          content: [],
-          model: "claude-test",
-          stop_reason: null,
-          stop_sequence: null,
-          usage: { input_tokens: 10, output_tokens: 0 },
-        },
-      },
-    },
-    {
-      event: "content_block_start",
-      data: {
-        type: "content_block_start",
-        index: 0,
-        content_block: { type: "text", text: "" },
-      },
-    },
-    {
-      event: "content_block_delta",
-      data: {
-        type: "content_block_delta",
-        index: 0,
-        delta: { type: "text_delta", text: "Hello " },
-      },
-    },
-    {
-      event: "content_block_delta",
-      data: {
-        type: "content_block_delta",
-        index: 0,
-        delta: { type: "text_delta", text: "world" },
-      },
-    },
-    {
-      event: "content_block_stop",
-      data: { type: "content_block_stop", index: 0 },
-    },
-    {
-      event: "message_delta",
-      data: {
-        type: "message_delta",
-        delta: { stop_reason: "end_turn", stop_sequence: null },
-        usage: { output_tokens: 5 },
-      },
-    },
-    { event: "message_stop", data: { type: "message_stop" } },
-  ]);
-
-  const result: MessagesResponse = await reassembleMessagesSSE(body);
-
-  assertEquals(result.id, "msg_1");
-  assertEquals(result.model, "claude-test");
-  assertEquals(result.stop_reason, "end_turn");
-  assertEquals(result.content.length, 1);
-  assertEquals(result.content[0].type, "text");
-  assertEquals(
-    (result.content[0] as { type: "text"; text: string }).text,
-    "Hello world",
-  );
-  assertEquals(result.usage.input_tokens, 10);
-  assertEquals(result.usage.output_tokens, 5);
 });
 
 Deno.test("reassembleMessagesSSE reassembles tool_use response", async () => {
@@ -461,7 +387,7 @@ Deno.test("reassembleMessagesSSE throws on error event", async () => {
   );
 });
 
-Deno.test("reassembleAnthropicSSE reassembles native web search blocks and usage", async () => {
+Deno.test("reassembleMessagesSSE reassembles native web search blocks and usage", async () => {
   const body = makeSSEBody([
     {
       event: "message_start",
@@ -567,7 +493,7 @@ Deno.test("reassembleAnthropicSSE reassembles native web search blocks and usage
     { event: "message_stop", data: { type: "message_stop" } },
   ]);
 
-  const result = await reassembleAnthropicSSE(body);
+  const result = await reassembleMessagesSSE(body);
 
   assertEquals(result.stop_reason, "pause_turn");
   assertEquals(result.usage.server_tool_use?.web_search_requests, 1);
@@ -575,12 +501,12 @@ Deno.test("reassembleAnthropicSSE reassembles native web search blocks and usage
   assertEquals(result.content[1].type, "web_search_tool_result");
   assertEquals(result.content[2].type, "text");
   assertEquals(
-    (result.content[2] as AnthropicTextBlock).citations?.[0]?.type,
+    (result.content[2] as MessagesTextBlock).citations?.[0]?.type,
     "web_search_result_location",
   );
 });
 
-Deno.test("reassembleAnthropicSSE accumulates citations across multiple text deltas", async () => {
+Deno.test("reassembleMessagesSSE accumulates citations across multiple text deltas", async () => {
   const body = makeSSEBody([
     {
       event: "message_start",
@@ -657,8 +583,8 @@ Deno.test("reassembleAnthropicSSE accumulates citations across multiple text del
     { event: "message_stop", data: { type: "message_stop" } },
   ]);
 
-  const result = await reassembleAnthropicSSE(body);
-  const block = result.content[0] as AnthropicTextBlock;
+  const result = await reassembleMessagesSSE(body);
+  const block = result.content[0] as MessagesTextBlock;
 
   assertEquals(block.text, "First sentence. Second sentence.");
   assertEquals(block.citations?.length, 2);
@@ -666,7 +592,7 @@ Deno.test("reassembleAnthropicSSE accumulates citations across multiple text del
   assertEquals(block.citations?.[1]?.type, "web_search_result_location");
 });
 
-Deno.test("reassembleAnthropicSSE handles citations_delta and normalizes source fields", async () => {
+Deno.test("reassembleMessagesSSE handles citations_delta and normalizes source fields", async () => {
   const body = makeSSEBody([
     {
       event: "message_start",
@@ -734,8 +660,8 @@ Deno.test("reassembleAnthropicSSE handles citations_delta and normalizes source 
     { event: "message_stop", data: { type: "message_stop" } },
   ]);
 
-  const result = await reassembleAnthropicSSE(body);
-  const block = result.content[0] as AnthropicTextBlock;
+  const result = await reassembleMessagesSSE(body);
+  const block = result.content[0] as MessagesTextBlock;
 
   assertEquals(block.text, "Quoted text.");
   assertEquals(block.citations?.length, 1);

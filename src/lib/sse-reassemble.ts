@@ -262,7 +262,9 @@ export async function reassembleMessagesSSE(
 
       if (deltaType === "text_delta" && block.type === "text") {
         block.text += (delta.text as string) ?? "";
-        block.citations.push(...normalizeMessagesTextCitations(delta.citations));
+        block.citations.push(
+          ...normalizeMessagesTextCitations(delta.citations),
+        );
       } else if (deltaType === "citations_delta" && block.type === "text") {
         const citation = normalizeMessagesTextCitation(delta.citation);
         if (citation) block.citations.push(citation);
@@ -393,8 +395,6 @@ export async function reassembleMessagesSSE(
   };
 }
 
-export const reassembleAnthropicSSE = reassembleMessagesSSE;
-
 // ── Chat Completions SSE → ChatCompletionResponse ──
 
 export async function reassembleChatCompletionsSSE(
@@ -456,18 +456,20 @@ export async function reassembleChatCompletionsSSE(
       }
 
       if (Array.isArray(delta.tool_calls)) {
-        for (const toolCall of delta.tool_calls as Array<Record<string, unknown>>) {
+        for (
+          const toolCall of delta.tool_calls as Array<Record<string, unknown>>
+        ) {
           const idx = toolCall.index as number;
           const existing = toolCallsMap.get(idx);
           if (!existing) {
             toolCallsMap.set(idx, {
               id: (toolCall.id as string) ?? "",
-              name:
-                (toolCall.function as Record<string, unknown>)?.name as string ??
-                  "",
-              arguments:
-                (toolCall.function as Record<string, unknown>)?.arguments as string ??
-                  "",
+              name: (toolCall.function as Record<string, unknown>)
+                ?.name as string ??
+                "",
+              arguments: (toolCall.function as Record<string, unknown>)
+                ?.arguments as string ??
+                "",
             });
           } else {
             if (toolCall.id) existing.id = toolCall.id as string;

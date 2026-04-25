@@ -1,4 +1,4 @@
-import type { AnthropicWebSearchErrorCode } from "../../../lib/messages-types.ts";
+import type { MessagesWebSearchErrorCode } from "../../../lib/messages-types.ts";
 
 export interface SearchConfig {
   provider: "disabled" | "tavily" | "microsoft-grounding";
@@ -9,7 +9,7 @@ export interface SearchConfig {
 export const DEFAULT_WEB_SEARCH_RESULT_COUNT = 10;
 
 export type WebSearchProviderErrorCode = Exclude<
-  AnthropicWebSearchErrorCode,
+  MessagesWebSearchErrorCode,
   "max_uses_exceeded"
 >;
 
