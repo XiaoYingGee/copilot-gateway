@@ -31,7 +31,7 @@ function usageSummaryMetric(
     <button
       type="button"
       @click="switchTokenChartMetric('${metric}')"
-      class="text-center w-full rounded-md border border-transparent cursor-pointer transition-colors hover:border-white/10 focus:outline-none focus-visible:border-accent-cyan/40"
+      class="text-center w-full rounded-md border border-transparent cursor-pointer transition-colors hover:border-white/10 focus:outline-none focus-visible:border-accent-cyan/40 px-2 py-2"
       :aria-pressed="tokenChartMetric === '${metric}'"
       title="Use ${label} for chart y-axis"
     >
@@ -54,6 +54,17 @@ function usageSummaryMetric(
         </span>
       </template>
     </button>
+  `;
+}
+
+function usageSummaryMetricPair(
+  first: ReturnType<typeof html>,
+  second: ReturnType<typeof html>,
+) {
+  return html`
+    <div class="grid grid-cols-2 lg:grid-cols-1 gap-2">
+      ${first} ${second}
+    </div>
   `;
 }
 
@@ -1196,37 +1207,74 @@ export function renderUsageTab() {
           </div>
         </div>
 
-        <div class="grid grid-cols-6 gap-4 mt-6 pt-5 border-t border-white/5">
-          ${usageSummaryMetric(
-            "requests",
-            "Requests",
-            "tokenSummary.requests.toLocaleString()",
-            "w-16",
-          )} ${usageSummaryMetric(
-            "total",
-            "Total Tokens",
-            "tokenSummary.total.toLocaleString()",
-            "w-20",
-          )} ${usageSummaryMetric(
-            "input",
-            "Input Tokens",
-            "tokenSummary.input.toLocaleString()",
-            "w-20",
-          )} ${usageSummaryMetric(
-            "output",
-            "Output Tokens",
-            "tokenSummary.output.toLocaleString()",
-            "w-20",
-          )} ${usageSummaryMetric(
-            "cacheCreation",
-            "Cache Write",
-            "tokenSummary.cacheCreation.toLocaleString()",
-            "w-20",
-          )} ${usageSummaryMetric(
-            "cacheHitRate",
-            "Cache Hit Rate",
-            "formatHitRate(tokenSummary.cacheRead, tokenSummary.cacheCreation)",
-            "w-20",
+        <div
+          class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mt-6 pt-5 border-t border-white/5"
+        >
+          ${usageSummaryMetricPair(
+            usageSummaryMetric(
+              "requests",
+              "Requests",
+              "tokenSummary.requests.toLocaleString()",
+              "w-16",
+            ),
+            usageSummaryMetric(
+              "total",
+              "Total Tokens",
+              "tokenSummary.total.toLocaleString()",
+              "w-20",
+            ),
+          )} ${usageSummaryMetricPair(
+            usageSummaryMetric(
+              "input",
+              "Input Tokens",
+              "tokenSummary.input.toLocaleString()",
+              "w-20",
+            ),
+            usageSummaryMetric(
+              "output",
+              "Output Tokens",
+              "tokenSummary.output.toLocaleString()",
+              "w-20",
+            ),
+          )} ${usageSummaryMetricPair(
+            usageSummaryMetric(
+              "cached",
+              "Cached Input",
+              "tokenSummary.cacheRead.toLocaleString()",
+              "w-20",
+            ),
+            usageSummaryMetric(
+              "cachedRate",
+              "Cached Rate",
+              "formatInputRate(tokenSummary.cacheRead, tokenSummary.input)",
+              "w-20",
+            ),
+          )} ${usageSummaryMetricPair(
+            usageSummaryMetric(
+              "prefill",
+              "Prefill Input",
+              "tokenSummary.prefill.toLocaleString()",
+              "w-20",
+            ),
+            usageSummaryMetric(
+              "prefillRate",
+              "Prefill Rate",
+              "formatInputRate(tokenSummary.prefill, tokenSummary.input)",
+              "w-20",
+            ),
+          )} ${usageSummaryMetricPair(
+            usageSummaryMetric(
+              "cacheCreation",
+              "Cache Write",
+              "tokenSummary.cacheCreation.toLocaleString()",
+              "w-20",
+            ),
+            usageSummaryMetric(
+              "cacheHitRate",
+              "Cache Hit Rate",
+              "formatHitRate(tokenSummary.cacheRead, tokenSummary.cacheCreation)",
+              "w-20",
+            ),
           )}
         </div>
 

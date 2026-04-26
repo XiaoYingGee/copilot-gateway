@@ -41,11 +41,23 @@ export function dashboardAssets() {
       return total > 0 ? ((cacheRead / total) * 100).toFixed(1) + '%' : '\\u2014';
     }
 
+    function renderInputRate(tokens, input) {
+      return input > 0 ? ((tokens / input) * 100).toFixed(1) + '%' : '\\u2014';
+    }
+
+    function prefillInputTokens(input, cacheRead) {
+      return input - cacheRead;
+    }
+
     const TOKEN_CHART_METRICS = {
       requests: { label: 'Requests', kind: 'count' },
       total: { label: 'Total Tokens', kind: 'tokens' },
       input: { label: 'Input Tokens', kind: 'tokens' },
       output: { label: 'Output Tokens', kind: 'tokens' },
+      cached: { label: 'Cached Input', kind: 'tokens' },
+      cachedRate: { label: 'Cached Rate', kind: 'percent' },
+      prefill: { label: 'Prefill Input', kind: 'tokens' },
+      prefillRate: { label: 'Prefill Rate', kind: 'percent' },
       cacheCreation: { label: 'Cache Write', kind: 'tokens' },
       cacheHitRate: { label: 'Cache Hit Rate', kind: 'percent' },
     };
@@ -116,14 +128,30 @@ export function dashboardAssets() {
             if (metric === 'requests') return record.requests;
             if (metric === 'input') return record.inputTokens;
             if (metric === 'output') return record.outputTokens;
+            if (metric === 'cached') return record.cacheReadTokens ?? 0;
+            if (metric === 'prefill') return prefillInputTokens(record.inputTokens, record.cacheReadTokens ?? 0);
             if (metric === 'cacheCreation') return record.cacheCreationTokens ?? 0;
             return record.inputTokens + record.outputTokens;
           }
 
           function tokenChartMetricDetailValue(detail, metric) {
-            if (metric !== 'cacheHitRate') return null;
-            const total = detail.cacheRead + detail.cacheCreation;
-            return total > 0 ? (detail.cacheRead / total) * 100 : null;
+            if (metric === 'cacheHitRate') {
+              const total = detail.cacheRead + detail.cacheCreation;
+              return total > 0 ? (detail.cacheRead / total) * 100 : null;
+            }
+            if (metric === 'cachedRate') {
+              return detail.input > 0 ? (detail.cacheRead / detail.input) * 100 : null;
+            }
+            if (metric === 'prefillRate') {
+              return detail.input > 0
+                ? (prefillInputTokens(detail.input, detail.cacheRead) / detail.input) * 100
+                : null;
+            }
+            return null;
+          }
+
+          function isTokenChartPercentMetric(metric) {
+            return TOKEN_CHART_METRICS[metric]?.kind === 'percent';
           }
 
           function tokenChartMetricLabel(metric) {
@@ -144,19 +172,25 @@ export function dashboardAssets() {
             return '  ' + ''.padEnd(labelWidth + 1)
               + 'Req'.padStart(5)
               + '  ' + 'Total'.padStart(7)
-              + '  ' + 'Input'.padStart(7)
+              + '  ' + 'Cached'.padStart(7)
+              + '  ' + 'Cached%'.padStart(8)
+              + '  ' + 'Prefill'.padStart(7)
+              + '  ' + 'Prefill%'.padStart(8)
               + '  ' + 'Output'.padStart(7)
-              + '  ' + 'CacheW'.padStart(7)
-              + '  ' + 'HitRate'.padStart(7);
+              + '  ' + 'Hit%'.padStart(7);
             }
 
             function formatTooltipRow(label, labelWidth, detail) {
+              const cached = detail.cacheRead;
+              const prefill = prefillInputTokens(detail.input, cached);
               return label.padEnd(labelWidth + 1)
                 + String(detail.requests).padStart(5)
                 + '  ' + formatTokenCount(detail.input + detail.output).padStart(7)
-                + '  ' + formatTokenCount(detail.input).padStart(7)
+                + '  ' + formatTokenCount(cached).padStart(7)
+                + '  ' + renderInputRate(cached, detail.input).padStart(8)
+                + '  ' + formatTokenCount(prefill).padStart(7)
+                + '  ' + renderInputRate(prefill, detail.input).padStart(8)
                 + '  ' + formatTokenCount(detail.output).padStart(7)
-                + '  ' + formatTokenCount(detail.cacheCreation).padStart(7)
                 + '  ' + renderHitRate(detail.cacheRead, detail.cacheCreation).padStart(7);
               }
 
@@ -257,7 +291,7 @@ export function dashboardAssets() {
                 searchUsageKeyColorOrder: [],
                 chartsReady: false,
                 tokenLoading: false,
-                tokenSummary: { requests: 0, total: 0, input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+                tokenSummary: { requests: 0, total: 0, input: 0, output: 0, cacheRead: 0, cacheCreation: 0, prefill: 0 },
                 hiddenKeys: new Set(),
                 hiddenModels: new Set(),
                 redactKeys: false,
@@ -354,6 +388,10 @@ export function dashboardAssets() {
 
                   formatHitRate(cacheRead, cacheCreation) {
                     return renderHitRate(cacheRead, cacheCreation);
+                  },
+
+                  formatInputRate(tokens, input) {
+                    return renderInputRate(tokens, input);
                   },
 
                   timeAgo(dateStr) {
@@ -1010,7 +1048,7 @@ export function dashboardAssets() {
                             if (!agg.has(bucket)) continue;
                             const m = agg.get(bucket);
                             const val = dimension === 'model' ? substituteModelName(r.model) : r[dimension];
-                            if (metric !== 'cacheHitRate') {
+                            if (!isTokenChartPercentMetric(metric)) {
                               m.set(val, (m.get(val) || 0) + tokenChartMetricRecordValue(r, metric));
                             }
                             const dm = detail.get(bucket);
@@ -1022,7 +1060,7 @@ export function dashboardAssets() {
                             prev.cacheCreation += r.cacheCreationTokens ?? 0;
                             dm.set(val, prev);
                           }
-                          if (metric === 'cacheHitRate') {
+                          if (isTokenChartPercentMetric(metric)) {
                             for (const [bucket, values] of detail) {
                               const m = agg.get(bucket);
                               for (const [val, item] of values) {
@@ -1055,10 +1093,10 @@ export function dashboardAssets() {
                         },
 
                         hasTokenChartMetricData(detail, dimensionValue) {
-                          if (this.tokenChartMetric !== 'cacheHitRate') return null;
+                          if (!isTokenChartPercentMetric(this.tokenChartMetric)) return null;
                           for (const values of detail.values()) {
                             const item = values.get(dimensionValue);
-                            if (item && item.cacheRead + item.cacheCreation > 0) return true;
+                            if (item && tokenChartMetricDetailValue(item, this.tokenChartMetric) !== null) return true;
                           }
                           return false;
                         },
@@ -1066,18 +1104,19 @@ export function dashboardAssets() {
                         tokenChartBucketValue(agg, bucket, dimensionValue) {
                           const value = agg.get(bucket)?.get(dimensionValue);
                           if (value !== undefined) return value;
-                          return this.tokenChartMetric === 'cacheHitRate' ? null : 0;
+                          return isTokenChartPercentMetric(this.tokenChartMetric) ? null : 0;
                         },
 
                         applyTokenChartMetricOptions(chart) {
                           const metric = this.tokenChartMetric;
-                          chart.options.scales.y.stacked = metric !== 'cacheHitRate';
+                          const isPercentMetric = isTokenChartPercentMetric(metric);
+                          chart.options.scales.y.stacked = !isPercentMetric;
                           chart.options.scales.y.title.text = tokenChartMetricLabel(metric);
-                          chart.options.scales.y.suggestedMax = metric === 'cacheHitRate' ? 100 : undefined;
+                          chart.options.scales.y.suggestedMax = isPercentMetric ? 100 : undefined;
                           chart.options.scales.y.ticks.callback = (v) => formatTokenChartAxisValue(Number(v), metric);
                           for (const ds of chart.data.datasets) {
-                            ds.fill = metric === 'cacheHitRate' ? false : 'stack';
-                            ds.spanGaps = metric === 'cacheHitRate';
+                            ds.fill = isPercentMetric ? false : 'stack';
+                            ds.spanGaps = isPercentMetric;
                           }
                         },
 
@@ -1098,6 +1137,7 @@ export function dashboardAssets() {
                             output: totalOut,
                             cacheRead: totalCR,
                             cacheCreation: totalCC,
+                            prefill: prefillInputTokens(totalIn, totalCR),
                           };
                         },
 
@@ -1221,7 +1261,7 @@ export function dashboardAssets() {
                               pointHoverRadius: 5,
                               tension: 0.3,
                               fill: 'stack',
-                              spanGaps: self.tokenChartMetric === 'cacheHitRate',
+                              spanGaps: isTokenChartPercentMetric(self.tokenChartMetric),
                               _keyId: keyId,
                             };
                           });
@@ -1238,7 +1278,7 @@ export function dashboardAssets() {
                               pointHoverRadius: 5,
                               tension: 0.3,
                               fill: 'stack',
-                              spanGaps: self.tokenChartMetric === 'cacheHitRate',
+                              spanGaps: isTokenChartPercentMetric(self.tokenChartMetric),
                               _model: model,
                             };
                           });
@@ -1291,7 +1331,7 @@ export function dashboardAssets() {
                                   padding: 12,
                                   beforeBodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
                                   bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
-                                  filter: (item) => item.parsed.y !== null && (isSearchChart ? item.parsed.y > 0 : (self.tokenChartMetric === 'cacheHitRate' || item.parsed.y > 0)),
+                                  filter: (item) => item.parsed.y !== null && (isSearchChart ? item.parsed.y > 0 : (isTokenChartPercentMetric(self.tokenChartMetric) || item.parsed.y > 0)),
                                   itemSort: (a, b) => b.parsed.y - a.parsed.y,
                                   callbacks: {
                                     beforeBody: (items) => {
@@ -1319,9 +1359,9 @@ export function dashboardAssets() {
                                   border: { color: 'rgba(255,255,255,0.06)' },
                                 },
                                 y: {
-                                  stacked: isSearchChart || self.tokenChartMetric !== 'cacheHitRate',
+                                  stacked: isSearchChart || !isTokenChartPercentMetric(self.tokenChartMetric),
                                   beginAtZero: true,
-                                  suggestedMax: !isSearchChart && self.tokenChartMetric === 'cacheHitRate' ? 100 : undefined,
+                                  suggestedMax: !isSearchChart && isTokenChartPercentMetric(self.tokenChartMetric) ? 100 : undefined,
                                   title: {
                                     display: true,
                                     text: isSearchChart ? 'Search Requests' : tokenChartMetricLabel(self.tokenChartMetric),

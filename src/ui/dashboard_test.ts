@@ -18,6 +18,14 @@ type ChartDataset = {
 };
 
 type ChartOptions = {
+  plugins?: {
+    tooltip?: {
+      callbacks?: {
+        beforeBody?: (items: unknown[]) => string[] | string;
+        label?: (ctx: unknown) => string;
+      };
+    };
+  };
   scales: {
     y: {
       title: { text?: string };
@@ -193,6 +201,16 @@ Deno.test("DashboardPage renders clickable usage summary metrics for chart axis 
   assertStringIncludes(html, "@click=\"switchTokenChartMetric('total')\"");
   assertStringIncludes(html, "@click=\"switchTokenChartMetric('input')\"");
   assertStringIncludes(html, "@click=\"switchTokenChartMetric('output')\"");
+  assertStringIncludes(html, "@click=\"switchTokenChartMetric('cached')\"");
+  assertStringIncludes(
+    html,
+    "@click=\"switchTokenChartMetric('cachedRate')\"",
+  );
+  assertStringIncludes(html, "@click=\"switchTokenChartMetric('prefill')\"");
+  assertStringIncludes(
+    html,
+    "@click=\"switchTokenChartMetric('prefillRate')\"",
+  );
   assertStringIncludes(
     html,
     "@click=\"switchTokenChartMetric('cacheCreation')\"",
@@ -201,7 +219,34 @@ Deno.test("DashboardPage renders clickable usage summary metrics for chart axis 
     html,
     "@click=\"switchTokenChartMetric('cacheHitRate')\"",
   );
+  assertStringIncludes(html, "Cached Input");
+  assertStringIncludes(html, "Cached Rate");
+  assertStringIncludes(html, "Prefill Input");
+  assertStringIncludes(html, "Prefill Rate");
+  assertStringIncludes(
+    html,
+    "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4",
+  );
+  assertEquals(
+    html.split('class="grid grid-cols-2 lg:grid-cols-1 gap-2"').length - 1,
+    5,
+  );
+  assertFalse(html.includes("grid grid-cols-2 md:grid-cols-5 gap-4"));
+  assert(html.indexOf("Cached Input") < html.indexOf("Prefill Input"));
+  assert(html.indexOf("Cached Rate") < html.indexOf("Prefill Rate"));
   assertStringIncludes(html, ":class=\"tokenChartMetric === 'total'");
+});
+
+Deno.test("DashboardPage renders cache and prefill tooltip columns without ratio", () => {
+  const html = DashboardPage().toString();
+
+  assertStringIncludes(html, "Cached%'.padStart(8)");
+  assertStringIncludes(html, "Prefill%'.padStart(8)");
+  assertStringIncludes(html, "Output'.padStart(7)");
+  assertStringIncludes(html, "Hit%'.padStart(7)");
+  assertFalse(html.includes("Ratio'.padStart"));
+  assertFalse(html.includes("renderInputOutputRatio"));
+  assertFalse(html.includes("Output%"));
 });
 
 Deno.test("DashboardPage does not embed production usage key ids in public HTML", () => {
@@ -221,11 +266,11 @@ Deno.test("DashboardPage preserves empty cache hit rate chart points", () => {
   );
   assertStringIncludes(
     html,
-    "return this.tokenChartMetric === 'cacheHitRate' ? null : 0;",
+    "return isTokenChartPercentMetric(this.tokenChartMetric) ? null : 0;",
   );
   assertStringIncludes(
     html,
-    "item.parsed.y !== null && (isSearchChart ? item.parsed.y > 0 : (self.tokenChartMetric === 'cacheHitRate' || item.parsed.y > 0))",
+    "item.parsed.y !== null && (isSearchChart ? item.parsed.y > 0 : (isTokenChartPercentMetric(self.tokenChartMetric) || item.parsed.y > 0))",
   );
 });
 
@@ -234,20 +279,20 @@ Deno.test("DashboardPage filters search usage tooltip items independently from t
 
   assertStringIncludes(
     html,
-    "filter: (item) => item.parsed.y !== null && (isSearchChart ? item.parsed.y > 0 : (self.tokenChartMetric === 'cacheHitRate' || item.parsed.y > 0))",
+    "filter: (item) => item.parsed.y !== null && (isSearchChart ? item.parsed.y > 0 : (isTokenChartPercentMetric(self.tokenChartMetric) || item.parsed.y > 0))",
   );
 });
 
-Deno.test("DashboardPage connects cache hit rate lines across empty points", () => {
+Deno.test("DashboardPage connects percent metric lines across empty points", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(
     html,
-    "ds.spanGaps = metric === 'cacheHitRate';",
+    "ds.spanGaps = isPercentMetric;",
   );
   assertStringIncludes(
     html,
-    "spanGaps: self.tokenChartMetric === 'cacheHitRate'",
+    "spanGaps: isTokenChartPercentMetric(self.tokenChartMetric)",
   );
 });
 
@@ -303,6 +348,59 @@ Deno.test("dashboardApp updates chart data and options when switching summary me
     assert(chart.data.datasets[0].data.includes(null));
   }
 
+  app.switchTokenChartMetric("cached");
+  assertEquals(app.tokenChartMetric, "cached");
+  for (const chart of charts) {
+    assertEquals(chart.options.scales.y.title.text, "Cached Input");
+    assertEquals(chart.options.scales.y.stacked, true);
+    assertEquals(chart.options.scales.y.suggestedMax, undefined);
+    assertEquals(chart.data.datasets[0].fill, "stack");
+    assertEquals(chart.data.datasets[0].spanGaps, false);
+    assertFalse(chart.data.datasets[0].data.includes(null));
+    assert(chart.data.datasets[0].data.includes(5));
+    assert(chart.data.datasets[0].data.includes(0));
+    assert(chart.data.datasets[0].data.includes(3));
+  }
+
+  app.switchTokenChartMetric("cachedRate");
+  assertEquals(app.tokenChartMetric, "cachedRate");
+  for (const chart of charts) {
+    assertEquals(chart.options.scales.y.title.text, "Cached Rate");
+    assertEquals(chart.options.scales.y.stacked, false);
+    assertEquals(chart.options.scales.y.suggestedMax, 100);
+    assertEquals(chart.data.datasets[0].fill, false);
+    assertEquals(chart.data.datasets[0].spanGaps, true);
+    assert(chart.data.datasets[0].data.includes(50));
+    assert(chart.data.datasets[0].data.includes(0));
+  }
+
+  app.switchTokenChartMetric("prefill");
+  assertEquals(app.tokenChartMetric, "prefill");
+  for (const chart of charts) {
+    assertEquals(chart.options.scales.y.title.text, "Prefill Input");
+    assertEquals(chart.options.scales.y.stacked, true);
+    assertEquals(chart.options.scales.y.suggestedMax, undefined);
+    assertEquals(chart.data.datasets[0].fill, "stack");
+    assertEquals(chart.data.datasets[0].spanGaps, false);
+    assertFalse(chart.data.datasets[0].data.includes(null));
+    assert(chart.data.datasets[0].data.includes(5));
+    assert(chart.data.datasets[0].data.includes(20));
+    assert(chart.data.datasets[0].data.includes(3));
+  }
+
+  app.switchTokenChartMetric("prefillRate");
+  assertEquals(app.tokenChartMetric, "prefillRate");
+  for (const chart of charts) {
+    assertEquals(chart.options.scales.y.title.text, "Prefill Rate");
+    assertEquals(chart.options.scales.y.stacked, false);
+    assertEquals(chart.options.scales.y.suggestedMax, 100);
+    assertEquals(chart.data.datasets[0].fill, false);
+    assertEquals(chart.data.datasets[0].spanGaps, true);
+    assert(chart.data.datasets[0].data.includes(50));
+    assert(chart.data.datasets[0].data.includes(100));
+    assert(chart.data.datasets[0].data.includes(50));
+  }
+
   app.switchTokenChartMetric("requests");
   assertEquals(app.tokenChartMetric, "requests");
   for (const chart of charts) {
@@ -316,6 +414,52 @@ Deno.test("dashboardApp updates chart data and options when switching summary me
     assert(chart.data.datasets[0].data.includes(3));
     assert(chart.data.datasets[0].data.includes(4));
   }
+});
+
+Deno.test("dashboardApp tooltip shows cached and prefill columns without ratio", () => {
+  const { app, charts } = createDashboardHarness();
+  app.tokenData = [
+    usageRecord(0, {
+      requests: 2,
+      inputTokens: 100,
+      outputTokens: 20,
+      cacheReadTokens: 30,
+      cacheCreationTokens: 10,
+    }),
+  ];
+
+  app.renderTokenCharts();
+
+  const chart = charts[0];
+  const dataset = chart.data.datasets[0];
+  const dataIndex = dataset.data.findIndex((v) => v === 120);
+  assert(dataIndex >= 0);
+
+  const callbacks = chart.options.plugins?.tooltip?.callbacks;
+  assert(callbacks?.beforeBody);
+  assert(callbacks?.label);
+
+  const header = callbacks.beforeBody([{ chart }]);
+  const row = callbacks.label({
+    chart,
+    dataIndex,
+    dataset,
+    parsed: { y: 120 },
+  });
+
+  assertStringIncludes(String(header), "Cached%");
+  assertStringIncludes(String(header), "Prefill%");
+  assertStringIncludes(String(header), "Output");
+  assertStringIncludes(String(header), "Hit%");
+  assertFalse(String(header).includes("Ratio"));
+  assertStringIncludes(row, "120");
+  assertStringIncludes(row, "30");
+  assertStringIncludes(row, "30.0%");
+  assertStringIncludes(row, "70");
+  assertStringIncludes(row, "70.0%");
+  assertStringIncludes(row, "20");
+  assertFalse(row.includes("5.00x"));
+  assertStringIncludes(row, "75.0%");
 });
 
 Deno.test("dashboardApp keeps known usage key colors on selected slots when earlier keys are absent", () => {
