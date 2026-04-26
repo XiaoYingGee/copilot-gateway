@@ -28,3 +28,29 @@ Deno.test("translateToSourceEvents rejects Messages error events", async () => {
     "Upstream Messages stream error: overloaded_error: upstream overloaded",
   );
 });
+
+Deno.test("translateToSourceEvents rejects truncated Messages streams without message_stop", async () => {
+  async function* stream(): AsyncGenerator<
+    ProtocolFrame<MessagesStreamEventData>
+  > {
+    yield eventFrame({
+      type: "message_start",
+      message: {
+        id: "msg_truncated",
+        type: "message",
+        role: "assistant",
+        content: [],
+        model: "claude-test",
+        stop_reason: null,
+        stop_sequence: null,
+        usage: { input_tokens: 1, output_tokens: 0 },
+      },
+    });
+  }
+
+  await assertRejects(
+    async () => await drain(translateToSourceEvents(stream())),
+    Error,
+    "Upstream Messages stream ended without a message_stop event.",
+  );
+});

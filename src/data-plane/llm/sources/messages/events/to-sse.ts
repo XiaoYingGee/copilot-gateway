@@ -4,30 +4,22 @@ import {
   type SseFrame,
   sseFrame,
 } from "../../../shared/stream/types.ts";
+import { protocolEventsUntilTerminal } from "../../../shared/stream/protocol-algebra.ts";
+import { messagesSourceStreamAlgebra } from "./protocol.ts";
 
 export const messagesProtocolEventToSSEFrame = (
-  frame: ProtocolFrame<MessagesStreamEventData>,
-): SseFrame | null =>
-  frame.type === "done"
-    ? null
-    : sseFrame(JSON.stringify(frame.event), frame.event.type);
+  event: MessagesStreamEventData,
+): SseFrame => sseFrame(JSON.stringify(event), event.type);
 
 export const messagesProtocolEventsToSSEFrames = async function* (
   frames: AsyncIterable<ProtocolFrame<MessagesStreamEventData>>,
 ): AsyncGenerator<SseFrame> {
-  let sawTerminal = false;
-
-  for await (const frame of frames) {
-    if (frame.type === "event") {
-      sawTerminal ||= frame.event.type === "message_stop" ||
-        frame.event.type === "error";
-    }
-
-    const sse = messagesProtocolEventToSSEFrame(frame);
-    if (sse) yield sse;
-  }
-
-  if (!sawTerminal) {
-    throw new Error("Messages stream ended without a message_stop event.");
+  for await (
+    const event of protocolEventsUntilTerminal(
+      frames,
+      messagesSourceStreamAlgebra,
+    )
+  ) {
+    yield messagesProtocolEventToSSEFrame(event);
   }
 };

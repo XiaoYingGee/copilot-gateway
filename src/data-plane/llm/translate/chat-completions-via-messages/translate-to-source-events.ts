@@ -11,6 +11,8 @@ import {
   eventFrame,
   type ProtocolFrame,
 } from "../../shared/stream/types.ts";
+import { protocolEventsUntilTerminal } from "../../shared/stream/protocol-algebra.ts";
+import { upstreamMessagesStreamAlgebra } from "../upstream-protocol.ts";
 
 const throwOnMessagesFatalEvent = (event: MessagesStreamEventData): void => {
   if (event.type !== "error") return;
@@ -26,12 +28,16 @@ export const translateToSourceEvents = async function* (
 ): AsyncGenerator<ProtocolFrame<ChatCompletionChunk>> {
   const state = createMessagesToChatCompletionsStreamState();
 
-  for await (const frame of frames) {
-    if (frame.type === "done") continue;
-    throwOnMessagesFatalEvent(frame.event);
+  for await (
+    const event of protocolEventsUntilTerminal(
+      frames,
+      upstreamMessagesStreamAlgebra,
+    )
+  ) {
+    throwOnMessagesFatalEvent(event);
 
     const translated = translateMessagesEventToChatCompletionsChunks(
-      frame.event,
+      event,
       state,
     );
 

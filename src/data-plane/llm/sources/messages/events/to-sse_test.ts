@@ -1,4 +1,4 @@
-import { assertRejects } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import type { MessagesStreamEventData } from "../../../../../lib/messages-types.ts";
 import { eventFrame } from "../../../shared/stream/types.ts";
 import { messagesProtocolEventsToSSEFrames } from "./to-sse.ts";
@@ -8,6 +8,19 @@ const collect = async <T>(events: AsyncIterable<T>): Promise<T[]> => {
   for await (const event of events) collected.push(event);
   return collected;
 };
+
+Deno.test("messagesProtocolEventsToSSEFrames stops at message_stop", async () => {
+  const frames = await collect(
+    messagesProtocolEventsToSSEFrames((async function* () {
+      yield eventFrame(
+        { type: "message_stop" } satisfies MessagesStreamEventData,
+      );
+      yield eventFrame({ type: "ping" } satisfies MessagesStreamEventData);
+    })()),
+  );
+
+  assertEquals(frames.map((frame) => frame.event), ["message_stop"]);
+});
 
 Deno.test("messagesProtocolEventsToSSEFrames rejects streams without message_stop", async () => {
   await assertRejects(

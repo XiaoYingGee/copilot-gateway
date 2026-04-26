@@ -110,3 +110,23 @@ Deno.test("collectMessagesProtocolEventsToResponse rejects streams without messa
     "Messages stream ended without a message_stop event.",
   );
 });
+
+Deno.test("collectMessagesProtocolEventsToResponse rejects Messages error events", async () => {
+  async function* events() {
+    yield eventFrame(
+      {
+        type: "error",
+        error: {
+          type: "overloaded_error",
+          message: "upstream overloaded",
+        },
+      } satisfies MessagesStreamEventData,
+    );
+  }
+
+  await assertRejects(
+    async () => await collectMessagesProtocolEventsToResponse(events()),
+    Error,
+    "Upstream SSE error: overloaded_error: upstream overloaded",
+  );
+});

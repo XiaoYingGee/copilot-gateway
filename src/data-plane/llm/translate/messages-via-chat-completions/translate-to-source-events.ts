@@ -7,34 +7,29 @@ import {
   flushChatCompletionsToMessagesEvents,
   translateChatCompletionsChunkToMessagesEvents,
 } from "../../../../lib/translate/chat-completions-to-messages-stream.ts";
+import { protocolEventsUntilTerminal } from "../../shared/stream/protocol-algebra.ts";
 import { eventFrame, type ProtocolFrame } from "../../shared/stream/types.ts";
+import { upstreamChatCompletionStreamAlgebra } from "../upstream-protocol.ts";
 
 export const translateToSourceEvents = async function* (
   frames: AsyncIterable<ProtocolFrame<ChatCompletionChunk>>,
 ): AsyncGenerator<ProtocolFrame<MessagesStreamEventData>> {
   const state = createChatCompletionsToMessagesStreamState();
-  let sawDone = false;
 
-  for await (const frame of frames) {
-    if (frame.type === "done") {
-      sawDone = true;
-      break;
-    }
-
+  for await (
+    const chunk of protocolEventsUntilTerminal(
+      frames,
+      upstreamChatCompletionStreamAlgebra,
+    )
+  ) {
     for (
       const event of translateChatCompletionsChunkToMessagesEvents(
-        frame.event,
+        chunk,
         state,
       )
     ) {
       yield eventFrame(event);
     }
-  }
-
-  if (!sawDone) {
-    throw new Error(
-      "Upstream Chat Completions stream ended without a DONE sentinel.",
-    );
   }
 
   for (const event of flushChatCompletionsToMessagesEvents(state)) {

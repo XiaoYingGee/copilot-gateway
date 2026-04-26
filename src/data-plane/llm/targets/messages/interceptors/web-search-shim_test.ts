@@ -181,10 +181,9 @@ const collect = async <T>(events: AsyncIterable<T>): Promise<T[]> => {
 const messagesResponseToSSEFrames = (
   response: MessagesResponse,
 ): SseFrame[] =>
-  messagesResultToEvents(response).flatMap((frame) => {
-    const sse = messagesProtocolEventToSSEFrame(frame);
-    return sse ? [sse] : [];
-  });
+  messagesResultToEvents(response).map((frame) =>
+    messagesProtocolEventToSSEFrame(frame.event)
+  );
 
 const collectRawMessagesFramesToResponse = async (
   frames: AsyncIterable<StreamFrame<MessagesResponse>>,

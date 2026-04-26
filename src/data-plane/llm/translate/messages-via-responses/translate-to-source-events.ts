@@ -1,8 +1,5 @@
 import type { MessagesStreamEventData } from "../../../../lib/messages-types.ts";
-import type {
-  ResponsesResult,
-  ResponseStreamEvent,
-} from "../../../../lib/responses-types.ts";
+import type { ResponsesResult } from "../../../../lib/responses-types.ts";
 import { translateResponsesToMessagesResponse } from "../../../../lib/translate/responses-to-messages.ts";
 import {
   createResponsesToMessagesStreamState,
@@ -13,22 +10,27 @@ import {
   eventFrame,
   type ProtocolFrame,
 } from "../../shared/stream/types.ts";
+import { protocolEventsUntilTerminal } from "../../shared/stream/protocol-algebra.ts";
 import { messagesResultToEvents } from "../../targets/messages/events/from-result.ts";
-import type { SequencedResponseStreamEvent } from "../../targets/responses/events/from-result.ts";
+import {
+  upstreamResponsesStreamAlgebra,
+  type UpstreamResponseStreamEvent,
+} from "../upstream-protocol.ts";
 
 export const translateToSourceEvents = async function* (
-  frames: AsyncIterable<ProtocolFrame<SequencedResponseStreamEvent>>,
+  frames: AsyncIterable<ProtocolFrame<UpstreamResponseStreamEvent>>,
 ): AsyncGenerator<ProtocolFrame<MessagesStreamEventData>> {
   const state = createResponsesToMessagesStreamState();
   let sawStructuredOutput = false;
   let streamingCommitted = false;
   const pendingFrames: Array<EventFrame<MessagesStreamEventData>> = [];
 
-  for await (const frame of frames) {
-    if (frame.type === "done") continue;
-
-    const event = frame.event as ResponseStreamEvent;
-
+  for await (
+    const event of protocolEventsUntilTerminal(
+      frames,
+      upstreamResponsesStreamAlgebra,
+    )
+  ) {
     if (
       event.type === "response.output_item.added" ||
       event.type === "response.output_item.done" ||

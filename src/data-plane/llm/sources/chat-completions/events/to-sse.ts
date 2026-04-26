@@ -1,10 +1,11 @@
 import type { ChatCompletionChunk } from "../../../../../lib/chat-completions-types.ts";
-import { chatCompletionsErrorPayloadMessage } from "../../../../../lib/chat-completions-errors.ts";
 import {
   type ProtocolFrame,
   type SseFrame,
   sseFrame,
 } from "../../../shared/stream/types.ts";
+import { protocolFramesUntilTerminal } from "../../../shared/stream/protocol-algebra.ts";
+import { chatCompletionSourceStreamAlgebra } from "./protocol.ts";
 
 export const chatProtocolEventToSSEFrame = (
   frame: ProtocolFrame<ChatCompletionChunk>,
@@ -35,21 +36,17 @@ export const chatProtocolEventsToSSEFrames = async function* (
   options: ChatProtocolEventsToSSEFramesOptions = {},
 ): AsyncGenerator<SseFrame> {
   const includeUsageChunk = options.includeUsageChunk ?? true;
-  let sawTerminal = false;
 
-  for await (const frame of frames) {
-    sawTerminal ||= frame.type === "done" ||
-      (frame.type === "event" &&
-        chatCompletionsErrorPayloadMessage(frame.event) !== null);
-
+  for await (
+    const frame of protocolFramesUntilTerminal(
+      frames,
+      chatCompletionSourceStreamAlgebra,
+    )
+  ) {
     const usage = readUsage(frame);
     if (usage) options.onUsageChunk?.(usage);
     if (!includeUsageChunk && usage) continue;
 
     yield chatProtocolEventToSSEFrame(frame);
-  }
-
-  if (!sawTerminal) {
-    throw new Error("Chat Completions stream ended without a DONE sentinel.");
   }
 };

@@ -1,13 +1,12 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
+import type { MessagesStreamEventData } from "../../../../lib/messages-types.ts";
 import type {
   ResponsesResult,
   ResponseStreamEvent,
 } from "../../../../lib/responses-types.ts";
 import { eventFrame, type ProtocolFrame } from "../../shared/stream/types.ts";
-import {
-  responsesResultToEvents,
-  type SequencedResponseStreamEvent,
-} from "../../targets/responses/events/from-result.ts";
+import { responsesResultToEvents } from "../../targets/responses/events/from-result.ts";
+import type { UpstreamResponseStreamEvent } from "../upstream-protocol.ts";
 import { translateToSourceEvents } from "./translate-to-source-events.ts";
 
 const makeResponse = (status: ResponsesResult["status"]): ResponsesResult => ({
@@ -30,8 +29,14 @@ const makeResponse = (status: ResponsesResult["status"]): ResponsesResult => ({
 
 const toProtocolFrame = (
   event: ResponseStreamEvent,
-): ProtocolFrame<SequencedResponseStreamEvent> =>
+): ProtocolFrame<UpstreamResponseStreamEvent> =>
   eventFrame({ ...event, sequence_number: 0 });
+
+const drain = async <T>(frames: AsyncIterable<T>): Promise<void> => {
+  for await (const _frame of frames) {
+    // Exhaust the stream so async translator errors surface to the caller.
+  }
+};
 
 Deno.test("translateToSourceEvents does not emit mixed frames for created+completed fallback", async () => {
   async function* stream() {
@@ -59,6 +64,42 @@ Deno.test("translateToSourceEvents does not emit mixed frames for created+comple
     "event",
     "event",
   ]);
+  assertEquals(
+    frames.map((frame) =>
+      frame.type === "event" ? frame.event.type : frame.type
+    ),
+    [
+      "message_start",
+      "content_block_start",
+      "content_block_delta",
+      "content_block_stop",
+      "message_delta",
+      "message_stop",
+    ],
+  );
+});
+
+Deno.test("translateToSourceEvents stops after Responses terminal fallback", async () => {
+  async function* stream() {
+    yield toProtocolFrame({
+      type: "response.completed",
+      response: makeResponse("completed"),
+    });
+    yield toProtocolFrame({
+      type: "response.output_text.delta",
+      item_id: "msg_1",
+      output_index: 0,
+      content_index: 0,
+      delta: "ignored",
+    });
+  }
+
+  const frames = [];
+
+  for await (const frame of translateToSourceEvents(stream())) {
+    frames.push(frame);
+  }
+
   assertEquals(
     frames.map((frame) =>
       frame.type === "event" ? frame.event.type : frame.type
@@ -106,4 +147,94 @@ Deno.test("translateToSourceEvents preserves refusal text from JSON fallback", a
   }
 
   assertEquals(text.join(""), "No.");
+});
+
+Deno.test("translateToSourceEvents translates Responses failed terminal to Messages error", async () => {
+  async function* stream() {
+    yield toProtocolFrame({
+      type: "response.failed",
+      response: {
+        ...makeResponse("failed"),
+        output_text: "",
+        output: [],
+        error: {
+          type: "server_error",
+          code: "server_error",
+          message: "upstream failed",
+        },
+      },
+    });
+    yield toProtocolFrame({
+      type: "response.completed",
+      response: makeResponse("completed"),
+    });
+  }
+
+  const frames = [];
+
+  for await (const frame of translateToSourceEvents(stream())) {
+    frames.push(frame);
+  }
+
+  assertEquals(frames, [
+    eventFrame(
+      {
+        type: "error",
+        error: {
+          type: "api_error",
+          message: "upstream failed",
+        },
+      } satisfies MessagesStreamEventData,
+    ),
+  ]);
+});
+
+Deno.test("translateToSourceEvents translates Responses error terminal to Messages error", async () => {
+  async function* stream() {
+    yield toProtocolFrame({
+      type: "error",
+      code: "overloaded_error",
+      message: "upstream overloaded",
+    });
+    yield toProtocolFrame({
+      type: "response.completed",
+      response: makeResponse("completed"),
+    });
+  }
+
+  const frames = [];
+
+  for await (const frame of translateToSourceEvents(stream())) {
+    frames.push(frame);
+  }
+
+  assertEquals(frames, [
+    eventFrame(
+      {
+        type: "error",
+        error: {
+          type: "api_error",
+          message: "upstream overloaded",
+        },
+      } satisfies MessagesStreamEventData,
+    ),
+  ]);
+});
+
+Deno.test("translateToSourceEvents rejects truncated Responses streams without terminal events", async () => {
+  async function* stream() {
+    yield toProtocolFrame({
+      type: "response.output_text.delta",
+      item_id: "msg_1",
+      output_index: 0,
+      content_index: 0,
+      delta: "partial",
+    });
+  }
+
+  await assertRejects(
+    async () => await drain(translateToSourceEvents(stream())),
+    Error,
+    "Upstream Responses stream ended without a terminal event.",
+  );
 });

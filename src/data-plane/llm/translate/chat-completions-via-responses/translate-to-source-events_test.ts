@@ -5,10 +5,8 @@ import type {
 } from "../../../../lib/responses-types.ts";
 import { chatProtocolEventsToSSEFrames } from "../../sources/chat-completions/events/to-sse.ts";
 import { eventFrame, type ProtocolFrame } from "../../shared/stream/types.ts";
-import {
-  responsesResultToEvents,
-  type SequencedResponseStreamEvent,
-} from "../../targets/responses/events/from-result.ts";
+import { responsesResultToEvents } from "../../targets/responses/events/from-result.ts";
+import type { UpstreamResponseStreamEvent } from "../upstream-protocol.ts";
 import { translateToSourceEvents } from "./translate-to-source-events.ts";
 
 const makeResponse = (status: ResponsesResult["status"]): ResponsesResult => ({
@@ -31,11 +29,11 @@ const makeResponse = (status: ResponsesResult["status"]): ResponsesResult => ({
 
 const toProtocolFrame = (
   event: ResponseStreamEvent,
-): ProtocolFrame<SequencedResponseStreamEvent> =>
+): ProtocolFrame<UpstreamResponseStreamEvent> =>
   eventFrame({ ...event, sequence_number: 0 });
 
 const countDoneSentinels = async (
-  frames: ProtocolFrame<SequencedResponseStreamEvent>[],
+  frames: ProtocolFrame<UpstreamResponseStreamEvent>[],
 ): Promise<number> => {
   let doneCount = 0;
 
@@ -55,7 +53,7 @@ const countDoneSentinels = async (
 };
 
 const countAssistantStartChunksAndDone = async (
-  frames: ProtocolFrame<SequencedResponseStreamEvent>[],
+  frames: ProtocolFrame<UpstreamResponseStreamEvent>[],
 ): Promise<{ assistantStartCount: number; doneCount: number }> => {
   let assistantStartCount = 0;
   let doneCount = 0;
@@ -175,6 +173,22 @@ Deno.test("translateToSourceEvents preserves refusal text from JSON fallback", a
   }
 
   assertEquals(text.join(""), "No.");
+});
+
+Deno.test("translateToSourceEvents stops after Responses terminal completion", async () => {
+  const doneCount = await countDoneSentinels([
+    toProtocolFrame({
+      type: "response.completed",
+      response: makeResponse("completed"),
+    }),
+    toProtocolFrame({
+      type: "error",
+      message: "ignored after terminal",
+      code: "ignored_error",
+    }),
+  ]);
+
+  assertEquals(doneCount, 1);
 });
 
 Deno.test("translateToSourceEvents rejects Responses error events", async () => {

@@ -1,6 +1,8 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import type { ResponsesResult } from "../../../../../lib/responses-types.ts";
+import { eventFrame } from "../../../shared/stream/types.ts";
 import { responsesResultToEvents } from "../../../targets/responses/events/from-result.ts";
+import type { SourceResponseStreamEvent } from "./protocol.ts";
 import { collectResponsesProtocolEventsToResult } from "./to-response.ts";
 
 Deno.test("collectResponsesProtocolEventsToResult reassembles synthetic Responses events", async () => {
@@ -25,5 +27,29 @@ Deno.test("collectResponsesProtocolEventsToResult reassembles synthetic Response
   assertEquals(
     await collectResponsesProtocolEventsToResult(events()),
     expected,
+  );
+});
+
+Deno.test("collectResponsesProtocolEventsToResult rejects streams without terminal events", async () => {
+  async function* events() {
+    yield eventFrame(
+      {
+        type: "response.created",
+        sequence_number: 0,
+        response: {
+          id: "resp_truncated",
+          object: "response",
+          model: "gpt-test",
+          status: "in_progress",
+          output: [],
+        },
+      } satisfies SourceResponseStreamEvent,
+    );
+  }
+
+  await assertRejects(
+    async () => await collectResponsesProtocolEventsToResult(events()),
+    Error,
+    "Responses stream ended without a terminal event.",
   );
 });

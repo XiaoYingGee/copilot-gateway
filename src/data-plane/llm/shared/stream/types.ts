@@ -39,11 +39,3 @@ export const eventFrame = <TEvent>(event: TEvent): EventFrame<TEvent> => ({
 });
 
 export const doneFrame = (): DoneFrame => ({ type: "done" });
-
-export const protocolFramesToEvents = async function* <TEvent>(
-  frames: AsyncIterable<ProtocolFrame<TEvent>>,
-): AsyncGenerator<TEvent> {
-  for await (const frame of frames) {
-    if (frame.type === "event") yield frame.event;
-  }
-};

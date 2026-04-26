@@ -10,11 +10,16 @@ import {
 } from "../../../../lib/translate/responses-to-chat-completions.ts";
 import {
   doneFrame,
+  type EventFrame,
   eventFrame,
   type ProtocolFrame,
 } from "../../shared/stream/types.ts";
+import { protocolEventsUntilTerminal } from "../../shared/stream/protocol-algebra.ts";
 import { chatCompletionResultToEvents } from "../../targets/chat-completions/events/from-result.ts";
-import type { SequencedResponseStreamEvent } from "../../targets/responses/events/from-result.ts";
+import {
+  upstreamResponsesStreamAlgebra,
+  type UpstreamResponseStreamEvent,
+} from "../upstream-protocol.ts";
 
 const responsesErrorMessage = (event: ResponseStreamEvent): string => {
   if (event.type === "error") {
@@ -56,25 +61,20 @@ const throwOnResponsesFatalEvent = (event: ResponseStreamEvent): void => {
 };
 
 export const translateToSourceEvents = async function* (
-  frames: AsyncIterable<ProtocolFrame<SequencedResponseStreamEvent>>,
+  frames: AsyncIterable<ProtocolFrame<UpstreamResponseStreamEvent>>,
 ): AsyncGenerator<ProtocolFrame<ChatCompletionChunk>> {
   const state = createResponsesToChatCompletionsStreamState();
   let sawStructuredOutput = false;
   let streamingCommitted = false;
-  const pendingFrames: Array<ProtocolFrame<ChatCompletionChunk>> = [];
-  let yieldedTerminalFrames = false;
+  const pendingFrames: Array<EventFrame<ChatCompletionChunk>> = [];
   let yieldedDone = false;
 
-  for await (const frame of frames) {
-    if (frame.type === "done") {
-      if (!yieldedDone && state.done) {
-        yieldedDone = true;
-        yield frame;
-      }
-      continue;
-    }
-
-    const event = frame.event as ResponseStreamEvent;
+  for await (
+    const event of protocolEventsUntilTerminal(
+      frames,
+      upstreamResponsesStreamAlgebra,
+    )
+  ) {
     throwOnResponsesFatalEvent(event);
 
     if (
@@ -87,10 +87,7 @@ export const translateToSourceEvents = async function* (
       sawStructuredOutput = true;
       if (!streamingCommitted) {
         streamingCommitted = true;
-        for (const pending of pendingFrames) {
-          if (pending.type === "done") yieldedDone = true;
-          yield pending;
-        }
+        for (const pending of pendingFrames) yield pending;
         pendingFrames.length = 0;
       }
     }
@@ -102,7 +99,6 @@ export const translateToSourceEvents = async function* (
         event.type === "response.incomplete")
     ) {
       pendingFrames.length = 0;
-      yieldedTerminalFrames = true;
       for (
         const translated of chatCompletionResultToEvents(
           translateResponsesToChatCompletion(event.response as ResponsesResult),
@@ -129,20 +125,9 @@ export const translateToSourceEvents = async function* (
     }
   }
 
-  if (!yieldedTerminalFrames && !state.done) {
-    throw new Error(
-      "Upstream Responses stream ended without a terminal event.",
-    );
-  }
-
   if (!streamingCommitted && pendingFrames.length > 0) {
-    for (const pending of pendingFrames) {
-      if (pending.type === "done") yieldedDone = true;
-      yield pending;
-    }
+    for (const pending of pendingFrames) yield pending;
   }
 
-  if (!yieldedTerminalFrames && !yieldedDone) {
-    yield doneFrame();
-  }
+  if (!yieldedDone) yield doneFrame();
 };

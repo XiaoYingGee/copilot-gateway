@@ -6,10 +6,8 @@ import {
 import {
   collectResponsesProtocolEventsToResult,
 } from "./events/to-response.ts";
-import {
-  responsesProtocolEventsToSSEFrames,
-  type SourceResponseStreamEvent,
-} from "./events/to-sse.ts";
+import { responsesProtocolEventsToSSEFrames } from "./events/to-sse.ts";
+import type { SourceResponseStreamEvent } from "./events/protocol.ts";
 import { responsesSourceInterceptors } from "./interceptors/index.ts";
 import type { StreamExecuteResult } from "../../shared/errors/result.ts";
 import { upstreamErrorToResponse } from "../../shared/errors/upstream-error.ts";

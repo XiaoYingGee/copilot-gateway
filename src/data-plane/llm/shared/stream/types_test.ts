@@ -1,11 +1,5 @@
 import { assertEquals } from "@std/assert";
-import {
-  doneFrame,
-  eventFrame,
-  jsonFrame,
-  protocolFramesToEvents,
-  sseFrame,
-} from "./types.ts";
+import { doneFrame, eventFrame, jsonFrame, sseFrame } from "./types.ts";
 
 Deno.test("eventFrame carries structured protocol events", () => {
   assertEquals(eventFrame({ type: "message_stop" }), {
@@ -25,18 +19,4 @@ Deno.test("raw stream frame helpers keep upstream payload shape", () => {
     event: "message_stop",
     data: "{}",
   });
-});
-
-Deno.test("protocolFramesToEvents drops protocol sentinels", async () => {
-  const events = [];
-  for await (
-    const event of protocolFramesToEvents((async function* () {
-      yield eventFrame({ type: "message_stop" });
-      yield doneFrame();
-    })())
-  ) {
-    events.push(event);
-  }
-
-  assertEquals(events, [{ type: "message_stop" }]);
 });

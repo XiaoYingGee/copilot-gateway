@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import type { ChatCompletionChunk } from "../../../../../lib/chat-completions-types.ts";
-import { eventFrame } from "../../../shared/stream/types.ts";
+import { doneFrame, eventFrame } from "../../../shared/stream/types.ts";
 import { chatProtocolEventsToSSEFrames } from "./to-sse.ts";
 
 const collect = async <T>(events: AsyncIterable<T>): Promise<T[]> => {
@@ -25,6 +25,41 @@ Deno.test("chatProtocolEventsToSSEFrames passes through non-chunk JSON payloads"
     event: undefined,
     data: JSON.stringify(payload),
   }]);
+});
+
+Deno.test("chatProtocolEventsToSSEFrames stops at DONE", async () => {
+  const chunk = {
+    id: "chatcmpl_done",
+    object: "chat.completion.chunk",
+    created: 123,
+    model: "gpt-test",
+    choices: [{
+      index: 0,
+      delta: { role: "assistant", content: "hello" },
+      finish_reason: null,
+    }],
+  } satisfies ChatCompletionChunk;
+
+  const frames = await collect(
+    chatProtocolEventsToSSEFrames((async function* () {
+      yield eventFrame(chunk);
+      yield doneFrame();
+      yield eventFrame({
+        ...chunk,
+        id: "chatcmpl_after_done",
+        choices: [{
+          index: 0,
+          delta: { content: "ignored" },
+          finish_reason: null,
+        }],
+      });
+    })()),
+  );
+
+  assertEquals(frames.map((frame) => frame.data), [
+    JSON.stringify(chunk),
+    "[DONE]",
+  ]);
 });
 
 Deno.test("chatProtocolEventsToSSEFrames rejects streams without DONE", async () => {

@@ -17,7 +17,7 @@ import {
 } from "../../shared/errors/result.ts";
 import { toInternalDebugError } from "../../shared/errors/internal-debug-error.ts";
 import type { ProtocolFrame } from "../../shared/stream/types.ts";
-import type { SourceResponseStreamEvent } from "./events/to-sse.ts";
+import type { SourceResponseStreamEvent } from "./events/protocol.ts";
 
 const withTranslatedEvents = <T>(
   result: StreamExecuteResult<T>,
