@@ -6,6 +6,7 @@ import type {
 import { getGithubCredentials } from "../../../../lib/github.ts";
 import { normalizeChatRequest } from "./normalize/request.ts";
 import { planChatRequest } from "./plan.ts";
+import { getModelCapabilities } from "../../shared/models/get-model-capabilities.ts";
 import { buildTargetRequest as buildMessagesTargetRequest } from "../../translate/chat-completions-via-messages/build-target-request.ts";
 import { buildTargetRequest as buildResponsesTargetRequest } from "../../translate/chat-completions-via-responses/build-target-request.ts";
 import { emitToMessages } from "../../targets/messages/emit.ts";
@@ -44,7 +45,13 @@ export const serveChatCompletions = async (
     const apiKeyId = c.get("apiKeyId") as string | undefined;
 
     const { token: githubToken, accountType } = await getGithubCredentials();
-    const plan = await planChatRequest(payload, githubToken, accountType);
+    const capabilities = await getModelCapabilities(
+      payload.model,
+      githubToken,
+      accountType,
+    );
+    const plan = planChatRequest(payload, capabilities);
+    payload.model = capabilities.model?.id ?? payload.model;
 
     if (plan.target === "messages") {
       const result = await emitToMessages({

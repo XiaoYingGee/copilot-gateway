@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { clearCopilotTokenCache } from "./copilot.ts";
-import { clearModelsCache, getModels } from "./models-cache.ts";
+import { clearModelsCache, findModel, getModels } from "./models-cache.ts";
 import { jsonResponse, setupAppTest, withMockedFetch } from "../test-helpers.ts";
 
 function withFakeNow<T>(times: number[], run: () => Promise<T>): Promise<T> {
@@ -102,4 +102,106 @@ Deno.test("models cache refreshes upstream after repo-backed cache expires", asy
   });
 
   assertEquals(modelsFetches, 2);
+});
+
+Deno.test("findModel applies dated Claude aliases only after exact model misses", async () => {
+  const { githubAccount } = await setupAppTest();
+  clearModelsCache();
+  await clearCopilotTokenCache();
+
+  await withMockedFetch((request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse({
+        object: "list",
+        data: [
+          {
+            id: "claude-haiku-4.5-20251001",
+            name: "claude-haiku-4.5-20251001",
+            version: "1",
+            object: "model",
+            supported_endpoints: ["/chat/completions"],
+            capabilities: {
+              family: "claude",
+              type: "chat",
+              limits: {},
+              supports: {},
+            },
+          },
+          {
+            id: "claude-haiku-4.5",
+            name: "claude-haiku-4.5",
+            version: "1",
+            object: "model",
+            supported_endpoints: ["/v1/messages"],
+            capabilities: {
+              family: "claude",
+              type: "chat",
+              limits: {},
+              supports: {},
+            },
+          },
+          {
+            id: "claude-opus-4.7",
+            name: "claude-opus-4.7",
+            version: "1",
+            object: "model",
+            supported_endpoints: ["/v1/messages"],
+            capabilities: {
+              family: "claude",
+              type: "chat",
+              limits: {},
+              supports: {},
+            },
+          },
+          {
+            id: "claude-sonnet-4.5",
+            name: "claude-sonnet-4.5",
+            version: "1",
+            object: "model",
+            supported_endpoints: ["/responses"],
+            capabilities: {
+              family: "claude",
+              type: "chat",
+              limits: {},
+              supports: {},
+            },
+          },
+        ],
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const exact = await findModel(
+      "claude-haiku-4.5-20251001",
+      githubAccount.token,
+      githubAccount.accountType,
+    );
+    const fallbackDotted = await findModel(
+      "claude-opus-4.7-20251001",
+      githubAccount.token,
+      githubAccount.accountType,
+    );
+    const fallbackDashed = await findModel(
+      "claude-sonnet-4-5-20251001",
+      githubAccount.token,
+      githubAccount.accountType,
+    );
+
+    assertEquals(exact?.id, "claude-haiku-4.5-20251001");
+    assertEquals(fallbackDotted?.id, "claude-opus-4.7");
+    assertEquals(fallbackDashed?.id, "claude-sonnet-4.5");
+  });
 });

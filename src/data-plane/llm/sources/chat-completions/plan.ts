@@ -1,5 +1,5 @@
 import type { ChatCompletionsPayload } from "../../../../lib/chat-completions-types.ts";
-import { getModelCapabilities } from "../../shared/models/get-model-capabilities.ts";
+import type { ModelCapabilities } from "../../shared/models/get-model-capabilities.ts";
 import type { ChatPlan } from "../../shared/types/plan.ts";
 
 const hasVision = (payload: ChatCompletionsPayload): boolean =>
@@ -8,16 +8,10 @@ const hasVision = (payload: ChatCompletionsPayload): boolean =>
     message.content.some((part) => part.type === "image_url")
   );
 
-export const planChatRequest = async (
+export const planChatRequest = (
   payload: ChatCompletionsPayload,
-  githubToken: string,
-  accountType: string,
-): Promise<ChatPlan> => {
-  const capabilities = await getModelCapabilities(
-    payload.model,
-    githubToken,
-    accountType,
-  );
+  capabilities: ModelCapabilities,
+): ChatPlan => {
   const wantsStream = payload.stream === true;
   const fetchOptions = { vision: hasVision(payload) };
 

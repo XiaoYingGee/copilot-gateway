@@ -3,6 +3,7 @@
 
 import { copilotFetch } from "./copilot.ts";
 import { getRepo } from "../repo/index.ts";
+import { dateSuffixedClaudeModelAliasTarget } from "./model-name.ts";
 
 interface ModelInfo {
   id: string;
@@ -143,7 +144,15 @@ export async function findModel(
   accountType: string,
 ): Promise<ModelInfo | undefined> {
   const models = await getModels(githubToken, accountType);
-  return models.data.find((m) => m.id === modelId);
+  const exact = models.data.find((m) => m.id === modelId);
+  if (exact) return exact;
+
+  // Date-suffixed Claude IDs are client aliases for the same Copilot model,
+  // but exact /models IDs must win first so future upstream dated releases are
+  // not rewritten to their base model.
+  const aliasTarget = dateSuffixedClaudeModelAliasTarget(modelId);
+  if (!aliasTarget) return undefined;
+  return models.data.find((m) => m.id === aliasTarget);
 }
 
 /** Check if a model supports a specific endpoint */
