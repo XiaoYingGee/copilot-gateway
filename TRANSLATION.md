@@ -63,6 +63,8 @@ Messages source boundary:
 Responses source boundary:
 
 - rewrites `apply_patch` from `custom` to `function`
+- removes unsupported `image_generation` tools and forced tool choices before
+  planning/emission
 
 Native Messages target:
 

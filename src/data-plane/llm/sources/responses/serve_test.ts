@@ -99,7 +99,10 @@ Deno.test("/v1/responses direct mode converts apply_patch and fixes mismatched s
         top_p: null,
         service_tier: "auto",
         max_output_tokens: 32,
-        tools: [{ type: "custom", name: "apply_patch" }],
+        tools: [
+          { type: "image_generation" },
+          { type: "custom", name: "apply_patch" },
+        ],
         tool_choice: "auto",
         metadata: null,
         stream: true,
@@ -116,6 +119,10 @@ Deno.test("/v1/responses direct mode converts apply_patch and fixes mismatched s
   });
 
   assertExists(upstreamBody);
+  assertEquals(
+    (upstreamBody!.tools as Array<Record<string, unknown>>).length,
+    1,
+  );
   const tool = (upstreamBody!.tools as Array<Record<string, unknown>>)[0];
   assertEquals(tool.type, "function");
   assertEquals(tool.name, "apply_patch");

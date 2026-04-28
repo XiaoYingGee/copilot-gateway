@@ -249,6 +249,7 @@ Current placement:
     `invalid_request_error` envelope expected by Messages clients
 - `src/data-plane/llm/sources/responses/normalize/`
   - rewrite `apply_patch` from `custom` to `function`
+  - remove unsupported `image_generation` tools and forced tool choices
 - `src/data-plane/llm/targets/messages/interceptors/filter-invalid-thinking-blocks.ts`
   - filter invalid thinking blocks
 - `src/data-plane/llm/targets/messages/interceptors/fix-beta-header.ts`
