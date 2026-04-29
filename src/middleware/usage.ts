@@ -154,6 +154,7 @@ interface UsageInfo {
 }
 
 interface StreamUsageInfo extends UsageInfo {
+  kind: "messages-start" | "messages-delta" | "final";
   fromStart: boolean;
 }
 
@@ -178,11 +179,34 @@ function readNumber(value: unknown): number | null {
   return typeof value === "number" ? value : null;
 }
 
-function addUsage(total: UsageInfo, next: UsageInfo): void {
-  total.input += next.input;
-  total.output += next.output;
-  total.cacheRead += next.cacheRead;
-  total.cacheCreation += next.cacheCreation;
+function setInputUsage(total: UsageInfo, next: UsageInfo): void {
+  total.input = next.input;
+  total.cacheRead = next.cacheRead;
+  total.cacheCreation = next.cacheCreation;
+}
+
+// Streaming usage events are cumulative/final snapshots, not additive deltas.
+// Anthropic documents message_delta usage as cumulative, and OpenAI Chat
+// include_usage chunks report usage for the entire request. Responses terminal
+// events carry the completed/incomplete response object, so treat those as final.
+// References:
+// https://platform.claude.com/docs/en/build-with-claude/streaming
+// https://platform.openai.com/docs/api-reference/chat/create#chat-create-stream_options
+// https://platform.openai.com/docs/guides/streaming-responses
+function mergeStreamUsage(total: UsageInfo, next: StreamUsageInfo): void {
+  if (next.kind === "messages-start") {
+    setInputUsage(total, next);
+    return;
+  }
+
+  if (next.kind === "messages-delta") {
+    if (next.input > 0) setInputUsage(total, next);
+    total.output = next.output;
+    return;
+  }
+
+  setInputUsage(total, next);
+  total.output = next.output;
 }
 
 function applyHiddenChatStreamUsage(c: Context, usage: UsageInfo): void {
@@ -214,7 +238,7 @@ function consumeUsageLine(
     const extracted = extractUsageFromStreamEvent(parsed, gotInputFromStart);
     if (!extracted) return gotInputFromStart;
 
-    addUsage(usage, extracted);
+    mergeStreamUsage(usage, extracted);
     return gotInputFromStart || extracted.fromStart;
   } catch {
     return gotInputFromStart;
@@ -263,7 +287,14 @@ function extractUsageFromStreamEvent(
     const input = (readNumber(usage.input_tokens) ?? 0) + cacheRead +
       cacheCreation;
     return input > 0
-      ? { input, output: 0, cacheRead, cacheCreation, fromStart: true }
+      ? {
+        kind: "messages-start",
+        input,
+        output: 0,
+        cacheRead,
+        cacheCreation,
+        fromStart: true,
+      }
       : null;
   }
 
@@ -286,7 +317,14 @@ function extractUsageFromStreamEvent(
       cacheCreation = readNumber(usage.cache_creation_input_tokens) ?? 0;
       input = (readNumber(usage.input_tokens) ?? 0) + cacheRead + cacheCreation;
     }
-    return { input, output, cacheRead, cacheCreation, fromStart: false };
+    return {
+      kind: "messages-delta",
+      input,
+      output,
+      cacheRead,
+      cacheCreation,
+      fromStart: false,
+    };
   }
 
   if (
@@ -298,6 +336,7 @@ function extractUsageFromStreamEvent(
     if (!usage) return null;
     const details = asObject(usage.input_tokens_details);
     return {
+      kind: "final",
       input: readNumber(usage.input_tokens) ?? 0,
       output: readNumber(usage.output_tokens) ?? 0,
       cacheRead: readNumber(details?.cached_tokens) ?? 0,
@@ -310,6 +349,7 @@ function extractUsageFromStreamEvent(
   if (readNumber(usage?.prompt_tokens) != null) {
     const details = asObject(usage?.prompt_tokens_details);
     return {
+      kind: "final",
       input: readNumber(usage?.prompt_tokens) ?? 0,
       output: readNumber(usage?.completion_tokens) ?? 0,
       cacheRead: readNumber(details?.cached_tokens) ?? 0,

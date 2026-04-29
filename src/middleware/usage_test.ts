@@ -593,3 +593,276 @@ Deno.test("usage middleware records hidden streaming usage from Chat via Message
   const updatedKey = await repo.apiKeys.getById(apiKey.id);
   assertExists(updatedKey?.lastUsedAt);
 });
+
+Deno.test("usage middleware records final cumulative Messages stream usage", async () => {
+  const { repo, apiKey } = await setupAppTest();
+
+  await withMockedFetch((request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        { id: "claude-cumulative", supported_endpoints: ["/v1/messages"] },
+      ]));
+    }
+    if (url.pathname === "/v1/messages") {
+      return sseResponse([
+        {
+          event: "message_start",
+          data: {
+            type: "message_start",
+            message: {
+              id: "msg_cumulative_usage",
+              type: "message",
+              role: "assistant",
+              content: [],
+              model: "claude-cumulative",
+              stop_reason: null,
+              stop_sequence: null,
+              usage: { input_tokens: 10, output_tokens: 0 },
+            },
+          },
+        },
+        {
+          event: "message_delta",
+          data: {
+            type: "message_delta",
+            delta: {},
+            usage: { output_tokens: 2 },
+          },
+        },
+        {
+          event: "message_delta",
+          data: {
+            type: "message_delta",
+            delta: { stop_reason: "end_turn", stop_sequence: null },
+            usage: { output_tokens: 5 },
+          },
+        },
+        { event: "message_stop", data: { type: "message_stop" } },
+      ]);
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp("/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+      },
+      body: JSON.stringify({
+        model: "claude-cumulative",
+        max_tokens: 64,
+        stream: true,
+        messages: [{ role: "user", content: "Hi" }],
+      }),
+    });
+
+    assertEquals(response.status, 200);
+    await response.text();
+  });
+
+  await flushAsyncWork();
+
+  const usage = await repo.usage.listAll();
+  assertEquals(usage.length, 1);
+  assertEquals(usage[0].inputTokens, 10);
+  assertEquals(usage[0].outputTokens, 5);
+});
+
+Deno.test("usage middleware records final visible Chat usage chunks", async () => {
+  const { repo, apiKey } = await setupAppTest();
+
+  await withMockedFetch((request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        {
+          id: "claude-chat-cumulative",
+          supported_endpoints: ["/v1/messages"],
+        },
+      ]));
+    }
+    if (url.pathname === "/v1/messages") {
+      return sseResponse([
+        {
+          event: "message_start",
+          data: {
+            type: "message_start",
+            message: {
+              id: "msg_chat_cumulative",
+              type: "message",
+              role: "assistant",
+              content: [],
+              model: "claude-chat-cumulative",
+              stop_reason: null,
+              stop_sequence: null,
+              usage: { input_tokens: 12, output_tokens: 0 },
+            },
+          },
+        },
+        {
+          event: "message_delta",
+          data: {
+            type: "message_delta",
+            delta: {},
+            usage: { output_tokens: 3 },
+          },
+        },
+        {
+          event: "message_delta",
+          data: {
+            type: "message_delta",
+            delta: { stop_reason: "end_turn", stop_sequence: null },
+            usage: { output_tokens: 8 },
+          },
+        },
+        { event: "message_stop", data: { type: "message_stop" } },
+      ]);
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp("/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+      },
+      body: JSON.stringify({
+        model: "claude-chat-cumulative",
+        stream: true,
+        stream_options: { include_usage: true },
+        messages: [{ role: "user", content: "Hi" }],
+      }),
+    });
+
+    assertEquals(response.status, 200);
+    const events = parseSSEText(await response.text());
+    const visibleUsageChunks = events.filter((event) => {
+      if (event.data === "[DONE]") return false;
+      const data = JSON.parse(event.data) as Record<string, unknown>;
+      return Array.isArray(data.choices) && data.choices.length === 0 &&
+        "usage" in data;
+    });
+    assertEquals(visibleUsageChunks.length, 2);
+  });
+
+  await flushAsyncWork();
+
+  const usage = await repo.usage.listAll();
+  assertEquals(usage.length, 1);
+  assertEquals(usage[0].inputTokens, 12);
+  assertEquals(usage[0].outputTokens, 8);
+});
+
+Deno.test("usage middleware records Responses via Messages usage once", async () => {
+  const { repo, apiKey } = await setupAppTest();
+
+  await withMockedFetch((request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        {
+          id: "claude-responses-cumulative",
+          supported_endpoints: ["/v1/messages"],
+        },
+      ]));
+    }
+    if (url.pathname === "/v1/messages") {
+      return sseResponse([
+        {
+          event: "message_start",
+          data: {
+            type: "message_start",
+            message: {
+              id: "msg_responses_cumulative",
+              type: "message",
+              role: "assistant",
+              content: [],
+              model: "claude-responses-cumulative",
+              stop_reason: null,
+              stop_sequence: null,
+              usage: { input_tokens: 7, output_tokens: 0 },
+            },
+          },
+        },
+        {
+          event: "message_delta",
+          data: {
+            type: "message_delta",
+            delta: {},
+            usage: { output_tokens: 4 },
+          },
+        },
+        {
+          event: "message_delta",
+          data: {
+            type: "message_delta",
+            delta: { stop_reason: "end_turn", stop_sequence: null },
+            usage: { output_tokens: 9 },
+          },
+        },
+        { event: "message_stop", data: { type: "message_stop" } },
+      ]);
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp("/v1/responses", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+      },
+      body: JSON.stringify({
+        model: "claude-responses-cumulative",
+        input: "Hi",
+        stream: true,
+      }),
+    });
+
+    assertEquals(response.status, 200);
+    await response.text();
+  });
+
+  await flushAsyncWork();
+
+  const usage = await repo.usage.listAll();
+  assertEquals(usage.length, 1);
+  assertEquals(usage[0].inputTokens, 7);
+  assertEquals(usage[0].outputTokens, 9);
+});
