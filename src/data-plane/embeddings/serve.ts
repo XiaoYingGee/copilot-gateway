@@ -8,11 +8,12 @@ import {
   getErrorMessage,
   proxyJsonResponse,
 } from "../shared/http/proxy-response.ts";
+import { withUsageResponseMetadata } from "../../middleware/usage-response-metadata.ts";
 
 export const embeddings = async (c: Context) => {
   try {
     const body = await c.req.text();
-    let model = "unknown";
+    let model: string | null = null;
     try {
       const parsed = JSON.parse(body) as { model?: unknown };
       if (typeof parsed.model === "string") model = parsed.model;
@@ -20,7 +21,7 @@ export const embeddings = async (c: Context) => {
       // Let upstream preserve the request-shape error; fallback simply has no model signal.
     }
 
-    const resp = await withAccountFallback(model, ({ account }) =>
+    const resp = await withAccountFallback(model ?? "unknown", ({ account }) =>
       copilotFetch(
         "/embeddings",
         { method: "POST", body },
@@ -28,7 +29,13 @@ export const embeddings = async (c: Context) => {
         account.accountType,
       ));
 
-    return proxyJsonResponse(resp);
+    // GitHub Copilot's embeddings response does not include a `model` field, so
+    // the usage middleware cannot recover one from the JSON body. Carry the
+    // requested model through usage metadata to satisfy requireUsageModel().
+    // This mirrors the usageModel writeback added in d8dd086 for chat
+    // completions / messages / responses serves.
+    const proxied = proxyJsonResponse(resp);
+    return model ? withUsageResponseMetadata(proxied, { usageModel: model }) : proxied;
   } catch (e: unknown) {
     if (isCopilotTokenFetchError(e)) {
       return new Response(e.body, {

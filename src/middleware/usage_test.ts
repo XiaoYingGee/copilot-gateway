@@ -1303,3 +1303,69 @@ Deno.test("usage middleware records Responses via Messages usage once", async ()
   assertEquals(usage[0].inputTokens, 7);
   assertEquals(usage[0].outputTokens, 9);
 });
+
+Deno.test("usage middleware records embeddings usage when upstream omits model field", async () => {
+  // Regression: GitHub Copilot's /embeddings response does NOT include a
+  // `model` field. After d8dd086 added requireUsageModel(), the chat-class
+  // serves were updated to write usageModel metadata, but the embeddings
+  // serve was missed, so /v1/embeddings returned 500. The embeddings serve
+  // now mirrors the chat-class pattern by carrying the requested model
+  // through usage metadata.
+  const { repo, apiKey } = await setupAppTest();
+
+  await withMockedFetch((request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        {
+          id: "text-embedding-3-small",
+          supported_endpoints: ["/embeddings"],
+        },
+      ]));
+    }
+    if (url.pathname === "/embeddings") {
+      // Real GitHub Copilot embeddings response: usage present, model absent.
+      return jsonResponse({
+        object: "list",
+        data: [{ object: "embedding", index: 0, embedding: [0.1, 0.2] }],
+        usage: { prompt_tokens: 4, total_tokens: 4 },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp("/v1/embeddings", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+      },
+      body: JSON.stringify({
+        model: "text-embedding-3-small",
+        input: ["hello"],
+      }),
+    });
+
+    assertEquals(response.status, 200);
+    await response.json();
+  });
+
+  await flushAsyncWork();
+
+  const usage = await repo.usage.listAll();
+  assertEquals(usage.length, 1);
+  // Falls back to the requested model carried via usage metadata.
+  assertEquals(usage[0].model, "text-embedding-3-small");
+  assertEquals(usage[0].inputTokens, 4);
+});
