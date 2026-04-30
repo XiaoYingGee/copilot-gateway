@@ -26,6 +26,10 @@ import {
 } from "./search-config/routes.ts";
 import { searchUsage } from "./search-usage/routes.ts";
 import { tokenUsage } from "./token-usage/routes.ts";
+import {
+  performanceOverview,
+  performanceTelemetry,
+} from "./performance/routes.ts";
 import { models } from "../data-plane/models/serve.ts";
 
 export const mountControlPlane = (app: Hono) => {
@@ -46,6 +50,8 @@ export const mountControlPlane = (app: Hono) => {
   app.get("/api/keys", listKeys);
   app.get("/api/token-usage", tokenUsage);
   app.get("/api/search-usage", searchUsage);
+  app.get("/api/performance", performanceTelemetry);
+  app.get("/api/performance/overview", performanceOverview);
   app.get("/api/models", models);
 
   const adminApi = new Hono();

@@ -6,10 +6,14 @@ import { InMemoryRepo } from "../../repo/memory.ts";
 import type {
   ApiKey,
   GitHubAccount,
+  PerformanceTelemetryRecord,
   SearchUsageRecord,
   UsageRecord,
 } from "../../repo/types.ts";
 import { exportData, importData } from "./routes.ts";
+
+const hasOwn = (value: object, key: string) =>
+  Object.prototype.hasOwnProperty.call(value, key);
 
 // ---- Fixtures ----
 
@@ -86,6 +90,36 @@ const SEARCH_USAGE_2: SearchUsageRecord = {
   requests: 4,
 };
 
+const PERFORMANCE_1: PerformanceTelemetryRecord = {
+  hour: "2026-01-01T10",
+  metricScope: "request_total",
+  keyId: "key-aaa",
+  model: "claude-opus-4.7-xhigh",
+  sourceApi: "messages",
+  targetApi: "responses",
+  stream: true,
+  runtimeLocation: "SJC",
+  requests: 5,
+  errors: 1,
+  totalMsSum: 1250,
+  buckets: [{ lowerMs: 100, upperMs: 142, count: 5 }],
+};
+
+const PERFORMANCE_2: PerformanceTelemetryRecord = {
+  hour: "2026-01-01T11",
+  metricScope: "upstream_success",
+  keyId: "key-bbb",
+  model: "gpt-5.3-codex",
+  sourceApi: "responses",
+  targetApi: "chat-completions",
+  stream: false,
+  runtimeLocation: "unknown",
+  requests: 3,
+  errors: 0,
+  totalMsSum: 900,
+  buckets: [{ lowerMs: 200, upperMs: 284, count: 3 }],
+};
+
 // ---- Helpers ----
 
 function setup() {
@@ -97,8 +131,10 @@ function setup() {
   return { repo, app };
 }
 
-async function doExport(app: Hono) {
-  const resp = await app.request("/export");
+async function doExport(app: Hono, includePerformance = false) {
+  const resp = await app.request(
+    includePerformance ? "/export?include_performance=1" : "/export",
+  );
   assertEquals(resp.status, 200);
   return await resp.json();
 }
@@ -129,10 +165,12 @@ Deno.test("export — empty database returns correct structure", async () => {
   assertEquals(result.data.usage.length, 0);
   assertEquals(Array.isArray(result.data.searchUsage), true);
   assertEquals(result.data.searchUsage.length, 0);
+  assertEquals(result.data.performanceIncluded, false);
+  assertEquals(hasOwn(result.data, "performance"), false);
   assertEquals(result.data.searchConfig, DEFAULT_SEARCH_CONFIG);
 });
 
-Deno.test("export — contains all stored data", async () => {
+Deno.test("export — contains stored data without performance by default", async () => {
   const { app, repo } = setup();
 
   await repo.apiKeys.save(KEY_A);
@@ -143,6 +181,8 @@ Deno.test("export — contains all stored data", async () => {
   await repo.usage.set(USAGE_2);
   await repo.searchUsage.set(SEARCH_USAGE_1);
   await repo.searchUsage.set(SEARCH_USAGE_2);
+  await repo.performance.set(PERFORMANCE_1);
+  await repo.performance.set(PERFORMANCE_2);
   await repo.searchConfig.save({
     provider: "tavily",
     tavily: { apiKey: "tvly-test" },
@@ -155,7 +195,24 @@ Deno.test("export — contains all stored data", async () => {
   assertEquals(result.data.githubAccounts.length, 2);
   assertEquals(result.data.usage.length, 2);
   assertEquals(result.data.searchUsage.length, 2);
+  assertEquals(result.data.performanceIncluded, false);
+  assertEquals(hasOwn(result.data, "performance"), false);
   assertEquals(result.data.searchConfig.provider, "tavily");
+});
+
+Deno.test("export — includes performance only when requested", async () => {
+  const { app, repo } = setup();
+
+  await repo.performance.set(PERFORMANCE_1);
+  await repo.performance.set(PERFORMANCE_2);
+
+  const defaultExport = await doExport(app);
+  const fullExport = await doExport(app, true);
+
+  assertEquals(defaultExport.data.performanceIncluded, false);
+  assertEquals(hasOwn(defaultExport.data, "performance"), false);
+  assertEquals(fullExport.data.performanceIncluded, true);
+  assertEquals(fullExport.data.performance.length, 2);
 });
 
 Deno.test("export — apiKeys contain all fields", async () => {
@@ -237,6 +294,14 @@ Deno.test("export — searchUsage records contain all fields", async () => {
   assertEquals(u.requests, SEARCH_USAGE_1.requests);
 });
 
+Deno.test("export — performance records contain raw dimensions and buckets", async () => {
+  const { app, repo } = setup();
+  await repo.performance.set(PERFORMANCE_1);
+
+  const result = await doExport(app, true);
+  assertEquals(result.data.performance, [PERFORMANCE_1]);
+});
+
 // ---- Tests: round-trip (import → export) ----
 
 Deno.test("round-trip — replace import then export yields equivalent data", async () => {
@@ -247,6 +312,7 @@ Deno.test("round-trip — replace import then export yields equivalent data", as
     githubAccounts: [ACCOUNT_X, ACCOUNT_Y],
     usage: [USAGE_1, USAGE_2],
     searchUsage: [SEARCH_USAGE_1, SEARCH_USAGE_2],
+    performance: [PERFORMANCE_1, PERFORMANCE_2],
   };
 
   const { status, body } = await doImport(app, "replace", original);
@@ -257,9 +323,10 @@ Deno.test("round-trip — replace import then export yields equivalent data", as
     githubAccounts: 2,
     usage: 2,
     searchUsage: 2,
+    performance: 2,
   });
 
-  const exported = await doExport(app);
+  const exported = await doExport(app, true);
 
   // Sort for stable comparison
   const sortById = (a: { id: string }, b: { id: string }) =>
@@ -272,22 +339,33 @@ Deno.test("round-trip — replace import then export yields equivalent data", as
     a.hour.localeCompare(b.hour) ||
     a.provider.localeCompare(b.provider) ||
     a.keyId.localeCompare(b.keyId);
+  const sortByPerformance = (
+    a: PerformanceTelemetryRecord,
+    b: PerformanceTelemetryRecord,
+  ) =>
+    a.hour.localeCompare(b.hour) ||
+    a.metricScope.localeCompare(b.metricScope) ||
+    a.keyId.localeCompare(b.keyId) ||
+    a.model.localeCompare(b.model);
 
   exported.data.apiKeys.sort(sortById);
   exported.data.githubAccounts.sort(sortByUserId);
   exported.data.usage.sort(sortByUsage);
   exported.data.searchUsage.sort(sortBySearchUsage);
+  exported.data.performance.sort(sortByPerformance);
 
   const expected = { ...original };
   expected.apiKeys = [...original.apiKeys].sort(sortById);
   expected.githubAccounts = [...original.githubAccounts].sort(sortByUserId);
   expected.usage = [...original.usage].sort(sortByUsage);
   expected.searchUsage = [...original.searchUsage].sort(sortBySearchUsage);
+  expected.performance = [...original.performance].sort(sortByPerformance);
 
   assertEquals(exported.data.apiKeys, expected.apiKeys);
   assertEquals(exported.data.githubAccounts, expected.githubAccounts);
   assertEquals(exported.data.usage, expected.usage);
   assertEquals(exported.data.searchUsage, expected.searchUsage);
+  assertEquals(exported.data.performance, expected.performance);
 });
 
 Deno.test("round-trip — merge import then export contains both old and new data", async () => {
@@ -298,6 +376,7 @@ Deno.test("round-trip — merge import then export contains both old and new dat
   await repo.github.saveAccount(ACCOUNT_X.user.id, ACCOUNT_X);
   await repo.usage.set(USAGE_1);
   await repo.searchUsage.set(SEARCH_USAGE_1);
+  await repo.performance.set(PERFORMANCE_1);
 
   // Merge new data
   const newData = {
@@ -310,7 +389,7 @@ Deno.test("round-trip — merge import then export contains both old and new dat
   const { status } = await doImport(app, "merge", newData);
   assertEquals(status, 200);
 
-  const exported = await doExport(app);
+  const exported = await doExport(app, true);
 
   assertEquals(exported.data.apiKeys.length, 2);
   assertEquals(exported.data.githubAccounts.length, 2);
@@ -330,8 +409,73 @@ Deno.test("import replace — clears existing searchUsage before importing provi
   assertEquals(status, 200);
   assertEquals(body.imported.searchUsage, 1);
 
-  const exported = await doExport(app);
+  const exported = await doExport(app, true);
   assertEquals(exported.data.searchUsage, [SEARCH_USAGE_2]);
+});
+
+Deno.test("import replace — clears existing performance before importing provided records", async () => {
+  const { app, repo } = setup();
+
+  await repo.performance.set(PERFORMANCE_1);
+
+  const { status, body } = await doImport(app, "replace", {
+    performance: [PERFORMANCE_2],
+  });
+
+  assertEquals(status, 200);
+  assertEquals(body.imported.performance, 1);
+
+  const exported = await doExport(app, true);
+  assertEquals(exported.data.performance, [PERFORMANCE_2]);
+});
+
+Deno.test("import replace — preserves existing performance when payload omits performance", async () => {
+  const { app, repo } = setup();
+
+  await repo.performance.set(PERFORMANCE_1);
+
+  const { status, body } = await doImport(app, "replace", {
+    apiKeys: [KEY_B],
+  });
+
+  assertEquals(status, 200);
+  assertEquals(body.imported.performance, 0);
+
+  const exported = await doExport(app, true);
+  assertEquals(exported.data.performance, [PERFORMANCE_1]);
+});
+
+Deno.test("import replace — preserves existing performance for legacy empty payloads without intent", async () => {
+  const { app, repo } = setup();
+
+  await repo.performance.set(PERFORMANCE_1);
+
+  const { status, body } = await doImport(app, "replace", {
+    performance: [],
+  });
+
+  assertEquals(status, 200);
+  assertEquals(body.imported.performance, 0);
+
+  const exported = await doExport(app, true);
+  assertEquals(exported.data.performance, [PERFORMANCE_1]);
+});
+
+Deno.test("import replace — clears existing performance when explicitly included empty", async () => {
+  const { app, repo } = setup();
+
+  await repo.performance.set(PERFORMANCE_1);
+
+  const { status, body } = await doImport(app, "replace", {
+    performanceIncluded: true,
+    performance: [],
+  });
+
+  assertEquals(status, 200);
+  assertEquals(body.imported.performance, 0);
+
+  const exported = await doExport(app, true);
+  assertEquals(exported.data.performance, []);
 });
 
 Deno.test("import replace — rejects invalid searchUsage before clearing existing data", async () => {
@@ -361,9 +505,36 @@ Deno.test("import replace — rejects invalid searchUsage before clearing existi
     error: "invalid searchUsage record at index 0",
   });
 
-  const exported = await doExport(app);
+  const exported = await doExport(app, true);
   assertEquals(exported.data.apiKeys, [KEY_A]);
   assertEquals(exported.data.searchUsage, [SEARCH_USAGE_1]);
+});
+
+Deno.test("import replace — rejects invalid performance before clearing existing data", async () => {
+  const { app, repo } = setup();
+
+  await repo.apiKeys.save(KEY_A);
+  await repo.performance.set(PERFORMANCE_1);
+
+  const resp = await app.request("/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      mode: "replace",
+      data: {
+        performance: [{ ...PERFORMANCE_2, metricScope: "bad" }],
+      },
+    }),
+  });
+
+  assertEquals(resp.status, 400);
+  assertEquals(await resp.json(), {
+    error: "invalid performance record at index 0",
+  });
+
+  const exported = await doExport(app, true);
+  assertEquals(exported.data.apiKeys, [KEY_A]);
+  assertEquals(exported.data.performance, [PERFORMANCE_1]);
 });
 
 Deno.test("export/import include searchConfig and replace it as a singleton when present", async () => {
@@ -451,8 +622,10 @@ Deno.test("round-trip — export from A, import into B, export from B matches A"
   await repoA.usage.set(USAGE_2);
   await repoA.searchUsage.set(SEARCH_USAGE_1);
   await repoA.searchUsage.set(SEARCH_USAGE_2);
+  await repoA.performance.set(PERFORMANCE_1);
+  await repoA.performance.set(PERFORMANCE_2);
 
-  const exportA = await doExport(appA);
+  const exportA = await doExport(appA, true);
 
   // Platform B — fresh repo
   const repoB = new InMemoryRepo();
@@ -462,7 +635,7 @@ Deno.test("round-trip — export from A, import into B, export from B matches A"
   appB.post("/import", importData);
 
   await doImport(appB, "replace", exportA.data);
-  const exportB = await doExport(appB);
+  const exportB = await doExport(appB, true);
 
   // Compare data (ignoring exportedAt timestamp)
   const sortById = (a: { id: string }, b: { id: string }) =>
@@ -475,20 +648,31 @@ Deno.test("round-trip — export from A, import into B, export from B matches A"
     a.hour.localeCompare(b.hour) ||
     a.provider.localeCompare(b.provider) ||
     a.keyId.localeCompare(b.keyId);
+  const sortByPerformance = (
+    a: PerformanceTelemetryRecord,
+    b: PerformanceTelemetryRecord,
+  ) =>
+    a.hour.localeCompare(b.hour) ||
+    a.metricScope.localeCompare(b.metricScope) ||
+    a.keyId.localeCompare(b.keyId) ||
+    a.model.localeCompare(b.model);
 
   exportA.data.apiKeys.sort(sortById);
   exportA.data.githubAccounts.sort(sortByUserId);
   exportA.data.usage.sort(sortByUsage);
   exportA.data.searchUsage.sort(sortBySearchUsage);
+  exportA.data.performance.sort(sortByPerformance);
   exportB.data.apiKeys.sort(sortById);
   exportB.data.githubAccounts.sort(sortByUserId);
   exportB.data.usage.sort(sortByUsage);
   exportB.data.searchUsage.sort(sortBySearchUsage);
+  exportB.data.performance.sort(sortByPerformance);
 
   assertEquals(exportB.data.apiKeys, exportA.data.apiKeys);
   assertEquals(exportB.data.githubAccounts, exportA.data.githubAccounts);
   assertEquals(exportB.data.usage, exportA.data.usage);
   assertEquals(exportB.data.searchUsage, exportA.data.searchUsage);
+  assertEquals(exportB.data.performance, exportA.data.performance);
 });
 
 // ---- Tests: import modes ----
@@ -514,6 +698,8 @@ Deno.test("import replace — clears existing data", async () => {
   assertEquals(exported.data.githubAccounts.length, 0);
   assertEquals(exported.data.usage.length, 0);
   assertEquals(exported.data.searchUsage.length, 0);
+  assertEquals(exported.data.performanceIncluded, false);
+  assertEquals(hasOwn(exported.data, "performance"), false);
 });
 
 Deno.test("import merge — upserts existing records by key", async () => {
@@ -585,5 +771,6 @@ Deno.test("import — handles missing optional arrays gracefully", async () => {
     githubAccounts: 0,
     usage: 0,
     searchUsage: 0,
+    performance: 0,
   });
 });

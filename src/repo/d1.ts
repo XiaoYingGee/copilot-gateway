@@ -6,6 +6,12 @@ import type {
   CacheRepo,
   GitHubAccount,
   GitHubRepo,
+  PerformanceDimensions,
+  PerformanceErrorSample,
+  PerformanceLatencySample,
+  PerformanceMetricScope,
+  PerformanceRepo,
+  PerformanceTelemetryRecord,
   Repo,
   SearchConfigRepo,
   SearchUsageRecord,
@@ -14,6 +20,7 @@ import type {
   UsageRepo,
 } from "./types.ts";
 import { assertWebSearchProviderName } from "../lib/web-search-types.ts";
+import { latencyBucketForMs } from "../lib/performance-histogram.ts";
 
 // Minimal D1 type definitions (subset of @cloudflare/workers-types)
 interface D1Result<T = Record<string, unknown>> {
@@ -31,6 +38,7 @@ interface D1PreparedStatement {
 
 export interface D1Database {
   prepare(query: string): D1PreparedStatement;
+  batch?(statements: D1PreparedStatement[]): Promise<D1Result[]>;
 }
 
 const SEARCH_CONFIG_KEY = "search_config";
@@ -515,6 +523,326 @@ class D1SearchUsageRepo implements SearchUsageRepo {
   }
 }
 
+class D1PerformanceRepo implements PerformanceRepo {
+  constructor(private db: D1Database) {}
+
+  async recordLatency(sample: PerformanceLatencySample): Promise<void> {
+    const durationMs = Math.max(0, Math.round(sample.durationMs));
+    const bucket = latencyBucketForMs(durationMs);
+    await this.runStatements([
+      this.addSummaryStatement(sample, 1, 0, durationMs),
+      this.addBucketStatement(sample, bucket.lowerMs, bucket.upperMs, 1),
+    ]);
+  }
+
+  async recordError(sample: PerformanceErrorSample): Promise<void> {
+    await this.addSummaryStatement(sample, 0, 1, 0).run();
+  }
+
+  async query(opts: {
+    keyId?: string;
+    metricScope?: PerformanceMetricScope;
+    start: string;
+    end: string;
+  }): Promise<PerformanceTelemetryRecord[]> {
+    const filters = ["hour >= ?", "hour < ?"];
+    const binds: unknown[] = [opts.start, opts.end];
+    if (opts.keyId) {
+      filters.push("key_id = ?");
+      binds.push(opts.keyId);
+    }
+    if (opts.metricScope) {
+      filters.push("metric_scope = ?");
+      binds.push(opts.metricScope);
+    }
+    return await this.queryWhere(filters.join(" AND "), binds);
+  }
+
+  async listAll(): Promise<PerformanceTelemetryRecord[]> {
+    return await this.queryWhere("1 = 1", []);
+  }
+
+  async set(record: PerformanceTelemetryRecord): Promise<void> {
+    await this.runStatements([
+      this.setSummaryStatement(record),
+      this.deleteBucketsStatement(record),
+      ...record.buckets.map((bucket) =>
+        this.setBucketStatement(
+          record,
+          bucket.lowerMs,
+          bucket.upperMs,
+          bucket.count,
+        )
+      ),
+    ]);
+  }
+
+  async deleteAll(): Promise<void> {
+    await this.db.prepare("DELETE FROM performance_latency_buckets").run();
+    await this.db.prepare("DELETE FROM performance_summary").run();
+  }
+
+  private async queryWhere(
+    where: string,
+    binds: unknown[],
+  ): Promise<PerformanceTelemetryRecord[]> {
+    const records = new Map<string, PerformanceTelemetryRecord>();
+
+    const { results: summaries } = await this.db
+      .prepare(
+        `SELECT hour, metric_scope, key_id, model, source_api, target_api, stream, runtime_location, requests, errors, total_ms_sum
+         FROM performance_summary WHERE ${where} ORDER BY hour`,
+      )
+      .bind(...binds)
+      .all<PerformanceSummaryRow>();
+    for (const row of summaries) {
+      const dimensions = performanceDimensionsFromRow(row);
+      records.set(performanceRecordKey(dimensions), {
+        ...dimensions,
+        requests: row.requests,
+        errors: row.errors,
+        totalMsSum: row.total_ms_sum,
+        buckets: [],
+      });
+    }
+
+    const { results: buckets } = await this.db
+      .prepare(
+        `SELECT hour, metric_scope, key_id, model, source_api, target_api, stream, runtime_location, lower_ms, upper_ms, count
+         FROM performance_latency_buckets WHERE ${where} ORDER BY hour, upper_ms`,
+      )
+      .bind(...binds)
+      .all<PerformanceBucketRow>();
+    for (const row of buckets) {
+      const dimensions = performanceDimensionsFromRow(row);
+      const key = performanceRecordKey(dimensions);
+      let record = records.get(key);
+      if (!record) {
+        record = {
+          ...dimensions,
+          requests: 0,
+          errors: 0,
+          totalMsSum: 0,
+          buckets: [],
+        };
+        records.set(key, record);
+      }
+      record.buckets.push({
+        lowerMs: row.lower_ms,
+        upperMs: row.upper_ms,
+        count: row.count,
+      });
+    }
+
+    return [...records.values()].sort(comparePerformanceTelemetryRecords);
+  }
+
+  private async runStatements(
+    statements: D1PreparedStatement[],
+  ): Promise<void> {
+    if (this.db.batch) {
+      await this.db.batch(statements);
+      return;
+    }
+    for (const statement of statements) await statement.run();
+  }
+
+  private addSummaryStatement(
+    sample: PerformanceDimensions,
+    requests: number,
+    errors: number,
+    totalMsSum: number,
+  ): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `INSERT INTO performance_summary (hour, metric_scope, key_id, model, source_api, target_api, stream, runtime_location, requests, errors, total_ms_sum)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (hour, metric_scope, key_id, model, source_api, target_api, stream, runtime_location) DO UPDATE SET
+           requests = requests + excluded.requests,
+           errors = errors + excluded.errors,
+           total_ms_sum = total_ms_sum + excluded.total_ms_sum`,
+      )
+      .bind(
+        sample.hour,
+        sample.metricScope,
+        sample.keyId,
+        sample.model,
+        sample.sourceApi,
+        sample.targetApi,
+        sample.stream ? 1 : 0,
+        sample.runtimeLocation,
+        requests,
+        errors,
+        totalMsSum,
+      );
+  }
+
+  private setSummaryStatement(
+    record: PerformanceTelemetryRecord,
+  ): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `INSERT INTO performance_summary (hour, metric_scope, key_id, model, source_api, target_api, stream, runtime_location, requests, errors, total_ms_sum)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (hour, metric_scope, key_id, model, source_api, target_api, stream, runtime_location) DO UPDATE SET
+           requests = excluded.requests,
+           errors = excluded.errors,
+           total_ms_sum = excluded.total_ms_sum`,
+      )
+      .bind(
+        record.hour,
+        record.metricScope,
+        record.keyId,
+        record.model,
+        record.sourceApi,
+        record.targetApi,
+        record.stream ? 1 : 0,
+        record.runtimeLocation,
+        record.requests,
+        record.errors,
+        record.totalMsSum,
+      );
+  }
+
+  private deleteBucketsStatement(
+    record: PerformanceDimensions,
+  ): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `DELETE FROM performance_latency_buckets
+         WHERE hour = ? AND metric_scope = ? AND key_id = ? AND model = ? AND source_api = ? AND target_api = ? AND stream = ? AND runtime_location = ?`,
+      )
+      .bind(...performanceDimensionBinds(record));
+  }
+
+  private addBucketStatement(
+    sample: PerformanceDimensions,
+    lowerMs: number,
+    upperMs: number,
+    count: number,
+  ): D1PreparedStatement {
+    return this.bucketStatement(sample, lowerMs, upperMs, count, "add");
+  }
+
+  private setBucketStatement(
+    sample: PerformanceDimensions,
+    lowerMs: number,
+    upperMs: number,
+    count: number,
+  ): D1PreparedStatement {
+    return this.bucketStatement(sample, lowerMs, upperMs, count, "set");
+  }
+
+  private bucketStatement(
+    sample: PerformanceDimensions,
+    lowerMs: number,
+    upperMs: number,
+    count: number,
+    mode: "add" | "set",
+  ): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `INSERT INTO performance_latency_buckets (hour, metric_scope, key_id, model, source_api, target_api, stream, runtime_location, lower_ms, upper_ms, count)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (hour, metric_scope, key_id, model, source_api, target_api, stream, runtime_location, lower_ms, upper_ms) DO UPDATE SET
+           count = ${
+          mode === "add" ? "count + excluded.count" : "excluded.count"
+        }`,
+      )
+      .bind(
+        sample.hour,
+        sample.metricScope,
+        sample.keyId,
+        sample.model,
+        sample.sourceApi,
+        sample.targetApi,
+        sample.stream ? 1 : 0,
+        sample.runtimeLocation,
+        lowerMs,
+        upperMs,
+        count,
+      );
+  }
+}
+
+type PerformanceDimensionRow = {
+  hour: string;
+  metric_scope: string;
+  key_id: string;
+  model: string;
+  source_api: string;
+  target_api: string;
+  stream: number;
+  runtime_location: string;
+};
+
+interface PerformanceSummaryRow extends PerformanceDimensionRow {
+  requests: number;
+  errors: number;
+  total_ms_sum: number;
+}
+
+interface PerformanceBucketRow extends PerformanceDimensionRow {
+  lower_ms: number;
+  upper_ms: number;
+  count: number;
+}
+
+function performanceDimensionsFromRow(
+  row: PerformanceDimensionRow,
+): PerformanceDimensions {
+  return {
+    hour: row.hour,
+    metricScope: row.metric_scope as PerformanceMetricScope,
+    keyId: row.key_id,
+    model: row.model,
+    sourceApi: row.source_api as PerformanceTelemetryRecord["sourceApi"],
+    targetApi: row.target_api as PerformanceTelemetryRecord["targetApi"],
+    stream: row.stream === 1,
+    runtimeLocation: row.runtime_location,
+  };
+}
+
+function performanceRecordKey(record: PerformanceDimensions): string {
+  return [
+    record.hour,
+    record.metricScope,
+    record.keyId,
+    record.model,
+    record.sourceApi,
+    record.targetApi,
+    record.stream ? "1" : "0",
+    record.runtimeLocation,
+  ].join("\0");
+}
+
+function performanceDimensionBinds(record: PerformanceDimensions): unknown[] {
+  return [
+    record.hour,
+    record.metricScope,
+    record.keyId,
+    record.model,
+    record.sourceApi,
+    record.targetApi,
+    record.stream ? 1 : 0,
+    record.runtimeLocation,
+  ];
+}
+
+function comparePerformanceTelemetryRecords(
+  a: PerformanceTelemetryRecord,
+  b: PerformanceTelemetryRecord,
+): number {
+  return a.hour.localeCompare(b.hour) ||
+    a.metricScope.localeCompare(b.metricScope) ||
+    a.keyId.localeCompare(b.keyId) ||
+    a.model.localeCompare(b.model) ||
+    a.sourceApi.localeCompare(b.sourceApi) ||
+    a.targetApi.localeCompare(b.targetApi) ||
+    Number(a.stream) - Number(b.stream) ||
+    a.runtimeLocation.localeCompare(b.runtimeLocation);
+}
+
 function toSearchUsageRecord(
   row: {
     provider: string;
@@ -686,6 +1014,7 @@ export class D1Repo implements Repo {
   github: GitHubRepo;
   usage: UsageRepo;
   searchUsage: SearchUsageRepo;
+  performance: PerformanceRepo;
   cache: CacheRepo;
   accountModelBackoffs: AccountModelBackoffRepo;
   searchConfig: SearchConfigRepo;
@@ -695,6 +1024,7 @@ export class D1Repo implements Repo {
     this.github = new D1GitHubRepo(db);
     this.usage = new D1UsageRepo(db);
     this.searchUsage = new D1SearchUsageRepo(db);
+    this.performance = new D1PerformanceRepo(db);
     this.cache = new D1CacheRepo(db);
     this.accountModelBackoffs = new D1AccountModelBackoffRepo(db);
     this.searchConfig = new D1SearchConfigRepo(db);

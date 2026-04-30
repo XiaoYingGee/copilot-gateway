@@ -23,6 +23,12 @@ import { toInternalDebugError } from "../../shared/errors/internal-debug-error.t
 import type { ProtocolFrame } from "../../shared/stream/types.ts";
 import type { SourceResponseStreamEvent } from "./events/protocol.ts";
 import { withAccountFallback } from "../../../shared/account-pool/fallback.ts";
+import {
+  type PerformanceTelemetryContext,
+  runtimeLocationFromRequest,
+} from "../../../../lib/performance-telemetry.ts";
+import { backgroundSchedulerFromContext } from "../../../../lib/background.ts";
+import { withUsageResponseMetadata } from "../../../../middleware/usage-response-metadata.ts";
 
 const withTranslatedEvents = <T>(
   result: StreamExecuteResult<T>,
@@ -34,11 +40,14 @@ const withTranslatedEvents = <T>(
     ? { ...result, events: translate(result.events) }
     : result;
 
-const withUsageModel = <T>(
+const withResultMetadata = <T>(
   result: StreamExecuteResult<T>,
   usageModel: string,
+  performance: PerformanceTelemetryContext,
 ): StreamExecuteResult<T> =>
-  result.type === "events" ? { ...result, usageModel } : result;
+  result.type === "events"
+    ? { ...result, usageModel, performance }
+    : { ...result, performance };
 
 const unsupportedResponsesModelResponse = (model: string): Response =>
   Response.json({
@@ -54,13 +63,31 @@ const createTranslatedResponseId = (): string =>
 export const serveResponses = async (
   c: Context,
 ): Promise<Response> => {
+  let lastPerformance: PerformanceTelemetryContext | undefined;
   try {
     const payload = await c.req.json<ResponsesPayload>();
     normalizeResponsesRequest(payload);
     const apiKeyId = c.get("apiKeyId") as string | undefined;
     const wantsStream = payload.stream === true;
+    const runtimeLocation = runtimeLocationFromRequest(c.req.raw);
+    const scheduleBackground = backgroundSchedulerFromContext(c);
     const intent = responsesModelResolutionIntent(payload);
     const modelId = await resolveModelForRequest(payload.model, intent);
+    const performanceFor = (
+      model: string,
+      targetApi: PerformanceTelemetryContext["targetApi"],
+    ): PerformanceTelemetryContext => {
+      lastPerformance = {
+        keyId: apiKeyId ?? "unknown",
+        model,
+        sourceApi: "responses",
+        targetApi,
+        stream: wantsStream,
+        runtimeLocation,
+      };
+      return lastPerformance;
+    };
+    performanceFor(modelId, "responses");
 
     const result = await withAccountFallback<
       StreamExecuteResult<SourceResponseStreamEvent> | Response
@@ -73,35 +100,53 @@ export const serveResponses = async (
         account.accountType,
       );
       const plan = planResponsesRequest(attemptPayload, capabilities);
-      if (!plan) return unsupportedResponsesModelResponse(attemptPayload.model);
+      if (!plan) {
+        const performance = performanceFor(attemptPayload.model, "responses");
+        return withUsageResponseMetadata(
+          c,
+          unsupportedResponsesModelResponse(attemptPayload.model),
+          { performance },
+        );
+      }
 
       if (plan.target === "responses") {
-        return withUsageModel(
+        const performance = performanceFor(attemptPayload.model, "responses");
+        return withResultMetadata(
           await emitToResponses({
             sourceApi: "responses",
             payload: attemptPayload,
             githubToken: account.token,
             accountType: account.accountType,
+            apiKeyId,
+            clientStream: wantsStream,
+            runtimeLocation,
+            scheduleBackground,
             fetchOptions: plan.fetchOptions,
           }),
           attemptPayload.model,
+          performance,
         );
       }
 
       if (plan.target === "messages") {
+        performanceFor(attemptPayload.model, "messages");
         const messagesPayload = await buildMessagesTargetRequest(
           attemptPayload,
         );
+        const performance = performanceFor(messagesPayload.model, "messages");
         const result = await emitToMessages({
           sourceApi: "responses",
           payload: messagesPayload,
           githubToken: account.token,
           accountType: account.accountType,
           apiKeyId,
+          clientStream: wantsStream,
+          runtimeLocation,
+          scheduleBackground,
           fetchOptions: plan.fetchOptions,
         });
 
-        return withUsageModel(
+        return withResultMetadata(
           withTranslatedEvents(
             result,
             (events) =>
@@ -112,24 +157,35 @@ export const serveResponses = async (
               ),
           ),
           messagesPayload.model,
+          performance,
         );
       }
 
+      performanceFor(attemptPayload.model, "chat-completions");
       const chatPayload = buildChatCompletionsTargetRequest(attemptPayload);
+      const performance = performanceFor(
+        chatPayload.model,
+        "chat-completions",
+      );
       const result = await emitToChatCompletions({
         sourceApi: "responses",
         payload: chatPayload,
         githubToken: account.token,
         accountType: account.accountType,
+        apiKeyId,
+        clientStream: wantsStream,
+        runtimeLocation,
+        scheduleBackground,
         fetchOptions: plan.fetchOptions,
       });
 
-      return withUsageModel(
+      return withResultMetadata(
         withTranslatedEvents(
           result,
           translateChatCompletionsToSourceEvents,
         ),
         chatPayload.model,
+        performance,
       );
     });
 
@@ -143,7 +199,11 @@ export const serveResponses = async (
   } catch (error) {
     return await respondResponses(
       c,
-      internalErrorResult(502, toInternalDebugError(error, "responses")),
+      internalErrorResult(
+        502,
+        toInternalDebugError(error, "responses"),
+        lastPerformance,
+      ),
       false,
     );
   }

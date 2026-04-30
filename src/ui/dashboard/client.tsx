@@ -15,18 +15,18 @@ export function dashboardAssets() {
     <script>
     function dashboardApp() {
     const isAdmin = localStorage.getItem('isAdmin') === '1';
-    const TABS = isAdmin ? ['upstream', 'keys', 'usage', 'models', 'settings'] : ['keys', 'usage', 'models'];
+    const TABS = isAdmin ? ['upstream', 'keys', 'usage', 'performance', 'models', 'settings'] : ['keys', 'usage', 'performance', 'models'];
     const defaultTab = isAdmin ? 'upstream' : 'keys';
     const initTab = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : defaultTab;
 
     // Chart instances and key name map stored outside Alpine to avoid reactive proxy wrapping
-    const _charts = { key: null, model: null, searchKey: null };
+    const _charts = { key: null, model: null, searchKey: null, performanceModel: null };
     const _keyNameMap = new Map();
     const _detailMaps = { key: null, model: null, searchKey: null };
     let _modelsLoadPromise = null;
 
     function destroyCharts() {
-      for (const k of ['key', 'model', 'searchKey']) {
+      for (const k of ['key', 'model', 'searchKey', 'performanceModel']) {
         if (_charts[k]) { _charts[k].stop(); _charts[k].destroy(); _charts[k] = null; }
       }
     }
@@ -67,6 +67,13 @@ export function dashboardAssets() {
 
     function formatTokenCount(n) {
       return n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n);
+    }
+
+    function formatDurationMs(ms) {
+      if (ms === null || ms === undefined) return '\\u2014';
+      if (ms >= 60000) return (ms / 60000).toFixed(1) + 'm';
+      if (ms >= 1000) return (ms / 1000).toFixed(1) + 's';
+      return Math.round(ms) + 'ms';
     }
 
     function renderHitRate(cacheRead, cacheCreation) {
@@ -179,412 +186,449 @@ export function dashboardAssets() {
               return detail.input > 0
                 ? (prefillInputTokens(detail.input, detail.cacheRead) / detail.input) * 100
                 : null;
-            }
-            return null;
-          }
-
-          function isTokenChartPercentMetric(metric) {
-            return TOKEN_CHART_METRICS[metric]?.kind === 'percent';
-          }
-
-          function tokenChartMetricLabel(metric) {
-            return TOKEN_CHART_METRICS[metric]?.label || TOKEN_CHART_METRICS.total.label;
-          }
-
-          function formatTokenChartAxisValue(value, metric) {
-            if (TOKEN_CHART_METRICS[metric]?.kind === 'percent') return value.toFixed(0) + '%';
-            if (TOKEN_CHART_METRICS[metric]?.kind === 'count') return Math.round(value).toLocaleString();
-            return formatTokenCount(value);
-          }
-
-          function tooltipLabelWidth(chart) {
-            return chart.data.datasets.reduce((maxLen, ds) => Math.max(maxLen, String(ds.label || '').length), 0);
-          }
-
-          function formatTooltipHeader(labelWidth) {
-            return '  ' + ''.padEnd(labelWidth + 1)
-              + 'Req'.padStart(5)
-              + '  ' + 'Total'.padStart(7)
-              + '  ' + 'Cached'.padStart(7)
-              + '  ' + 'Cached%'.padStart(8)
-              + '  ' + 'Prefill'.padStart(7)
-              + '  ' + 'Prefill%'.padStart(8)
-              + '  ' + 'Output'.padStart(7)
-              + '  ' + 'Hit%'.padStart(7);
+              }
+              return null;
             }
 
-            function formatTooltipRow(label, labelWidth, detail) {
-              const cached = detail.cacheRead;
-              const prefill = prefillInputTokens(detail.input, cached);
-              return label.padEnd(labelWidth + 1)
-                + String(detail.requests).padStart(5)
-                + '  ' + formatTokenCount(detail.input + detail.output).padStart(7)
-                + '  ' + formatTokenCount(cached).padStart(7)
-                + '  ' + renderInputRate(cached, detail.input).padStart(8)
-                + '  ' + formatTokenCount(prefill).padStart(7)
-                + '  ' + renderInputRate(prefill, detail.input).padStart(8)
-                + '  ' + formatTokenCount(detail.output).padStart(7)
-                + '  ' + renderHitRate(detail.cacheRead, detail.cacheCreation).padStart(7);
+            function isTokenChartPercentMetric(metric) {
+              return TOKEN_CHART_METRICS[metric]?.kind === 'percent';
+            }
+
+            function tokenChartMetricLabel(metric) {
+              return TOKEN_CHART_METRICS[metric]?.label || TOKEN_CHART_METRICS.total.label;
+            }
+
+            function formatTokenChartAxisValue(value, metric) {
+              if (TOKEN_CHART_METRICS[metric]?.kind === 'percent') return value.toFixed(0) + '%';
+              if (TOKEN_CHART_METRICS[metric]?.kind === 'count') return Math.round(value).toLocaleString();
+              return formatTokenCount(value);
+            }
+
+            function tooltipLabelWidth(chart) {
+              return chart.data.datasets.reduce((maxLen, ds) => Math.max(maxLen, String(ds.label || '').length), 0);
+            }
+
+            function formatTooltipHeader(labelWidth) {
+              return '  ' + ''.padEnd(labelWidth + 1)
+                + 'Req'.padStart(5)
+                + '  ' + 'Total'.padStart(7)
+                + '  ' + 'Cached'.padStart(7)
+                + '  ' + 'Cached%'.padStart(8)
+                + '  ' + 'Prefill'.padStart(7)
+                + '  ' + 'Prefill%'.padStart(8)
+                + '  ' + 'Output'.padStart(7)
+                + '  ' + 'Hit%'.padStart(7);
               }
 
-              const CLAUDE_TIER = { opus: 0, sonnet: 1, haiku: 2 };
-
-              const CLAUDE_VARIANT_SUFFIX = /-(?:high|xhigh|1m(?:-internal)?)$/;
-              const CLAUDE_DATE_SUFFIX = /-\\d{8}$/;
-
-              function claudeUpstreamSyntax(id) {
-                return id.replace(/-(\\d+)-(\\d+)(?=-|$)/g, '-$1.$2');
-              }
-
-              function claudeBaseModelId(id) {
-                if (!id || !id.startsWith('claude-')) return id;
-                const upstream = claudeUpstreamSyntax(id).replace(CLAUDE_DATE_SUFFIX, '');
-                return upstream.replace(CLAUDE_VARIANT_SUFFIX, '');
-              }
-
-              function claudeDisplayModelId(id) {
-                return claudeBaseModelId(id).replace(/(\\d)\\.(\\d)/g, '$1-$2');
-              }
-
-              function usageModelName(id) {
-                return id?.startsWith('claude-') ? claudeDisplayModelId(id) : id;
-              }
-
-              function configModelName(id) {
-                return id?.startsWith('claude-') ? claudeDisplayModelId(id) : id;
-              }
-
-              function modelContextWindow(model) {
-                const limits = model.capabilities?.limits;
-                const explicit = limits?.max_context_window_tokens || 0;
-                const total = (limits?.max_prompt_tokens || 0) + (limits?.max_output_tokens || 0);
-                const suffix = /-1m(?:-|$)/.test(model.id) ? 1000000 : 0;
-                return Math.max(explicit, total, suffix);
-              }
-
-              function claudeTier(id) {
-                for (const t in CLAUDE_TIER) {
-                  if (id.includes(t)) return CLAUDE_TIER[t];
+              function formatTooltipRow(label, labelWidth, detail) {
+                const cached = detail.cacheRead;
+                const prefill = prefillInputTokens(detail.input, cached);
+                return label.padEnd(labelWidth + 1)
+                  + String(detail.requests).padStart(5)
+                  + '  ' + formatTokenCount(detail.input + detail.output).padStart(7)
+                  + '  ' + formatTokenCount(cached).padStart(7)
+                  + '  ' + renderInputRate(cached, detail.input).padStart(8)
+                  + '  ' + formatTokenCount(prefill).padStart(7)
+                  + '  ' + renderInputRate(prefill, detail.input).padStart(8)
+                  + '  ' + formatTokenCount(detail.output).padStart(7)
+                  + '  ' + renderHitRate(detail.cacheRead, detail.cacheCreation).padStart(7);
                 }
-                return 99;
-              }
 
-              function sortClaudeBig(a, b) {
-                const ta = claudeTier(a);
-                const tb = claudeTier(b);
-                return ta !== tb ? ta - tb : b.localeCompare(a);
-              }
+                const CLAUDE_TIER = { opus: 0, sonnet: 1, haiku: 2 };
 
-              function sortClaudeSmall(a, b) {
-                const ta = claudeTier(a);
-                const tb = claudeTier(b);
-                return ta !== tb ? tb - ta : b.localeCompare(a);
-              }
+                const CLAUDE_VARIANT_SUFFIX = /-(?:high|xhigh|1m(?:-internal)?)$/;
+                const CLAUDE_DATE_SUFFIX = /-\\d{8}$/;
 
-              function sortClaudeSonnet(a, b) {
-                const da = Math.abs(claudeTier(a) - CLAUDE_TIER.sonnet);
-                const db = Math.abs(claudeTier(b) - CLAUDE_TIER.sonnet);
-                return da !== db ? da - db : b.localeCompare(a);
-              }
+                function claudeUpstreamSyntax(id) {
+                  return id.replace(/-(\\d+)-(\\d+)(?=-|$)/g, '-$1.$2');
+                }
 
-              function sortCodex(a, b) {
-                const am = a.includes('mini') ? 1 : 0;
-                const bm = b.includes('mini') ? 1 : 0;
-                return am !== bm ? am - bm : b.localeCompare(a);
-              }
+                function claudeBaseModelId(id) {
+                  if (!id || !id.startsWith('claude-')) return id;
+                  const upstream = claudeUpstreamSyntax(id).replace(CLAUDE_DATE_SUFFIX, '');
+                  return upstream.replace(CLAUDE_VARIANT_SUFFIX, '');
+                }
 
-              // Hono escapes interpolated strings in this template, but these helpers are
-              // embedded as executable script source, so they must be injected raw.
-              const draftFromSearchConfig = ${raw(
-                draftFromSearchConfig.toString(),
-              )};
-              const activeCredentialValue = ${raw(
-                activeCredentialValue.toString(),
-              )};
-              const setActiveCredentialValue = ${raw(
-                setActiveCredentialValue.toString(),
-              )};
-              const searchConfigFromDraft = ${raw(
-                searchConfigFromDraft.toString(),
-              )};
+                function claudeDisplayModelId(id) {
+                  return claudeBaseModelId(id).replace(/(\\d)\\.(\\d)/g, '$1-$2');
+                }
 
-              return {
-                authKey: '',
-                isAdmin,
-                tab: initTab,
-                meLoaded: false,
-                githubAccounts: [],
-                selectedGithubAccountId: null,
-                usageData: null,
-                usageError: false,
-                usagePercent: 0,
-                deviceFlow: { loading: false, userCode: null, verificationUri: null, deviceCode: null, pollTimer: null },
-                keys: [],
-                keysLoading: false,
-                now: Date.now(),
-                newKeyName: '',
-                selectedKeyId: null,
-                keyCreating: false,
-                keyDeleting: null,
-                keyRotating: null,
-                copied: false,
-                modelsLoaded: false,
-                claudeModelsBig: [],
-                claudeModelsSonnet: [],
-                claudeModelsSmall: [],
-                claudeContextMap: {},
-                claudeModel: '',
-                claudeSonnetModel: '',
-                claudeSmallModel: '',
-                codexModels: [],
-                codexModel: '',
-                tokenRange: 'today',
-                tokenChartMetric: 'total',
-                tokenData: [],
-                tokenKeyMetadata: [],
-                tokenKeyColorOrder: [],
-                searchUsageData: [],
-                searchUsageActiveProvider: 'disabled',
-                searchUsageLoading: false,
-                searchUsageKeyMetadata: [],
-                searchUsageKeyColorOrder: [],
-                chartsReady: false,
-                tokenLoading: false,
-                tokenSummary: { requests: 0, total: 0, input: 0, output: 0, cacheRead: 0, cacheCreation: 0, prefill: 0 },
-                hiddenKeys: new Set(),
-                hiddenModels: new Set(),
-                redactKeys: false,
-                exportLoading: false,
-                importFile: null,
-                importData: null,
-                importMode: 'merge',
-                importLoading: false,
-                importPreview: { ready: false, exportedAt: null, apiKeys: 0, githubAccounts: 0, usage: 0, searchUsage: 0 },
-                expandedUnavailableAccountId: null,
-                // Models tab — chat playground
-                allModels: [],
-                modelsSearch: '',
-                chatModelId: '',
-                chatMessages: [],     // {role, text, imageUrl?}
-                chatInput: '',
-                chatImageUrl: '',
-                chatShowImage: false,
-                chatSending: false,
-                chatStreamText: '',
-                searchConfigDraft: draftFromSearchConfig({
-                  provider: 'disabled',
-                  tavily: { apiKey: '' },
-                  microsoftGrounding: { apiKey: '' },
-                }),
-                searchConfigLoaded: false,
-                searchConfigSaving: false,
-                searchConfigTesting: false,
-                searchConfigTestResult: null,
-                _chatAbort: null,
+                // KEEP IN SYNC:
+                // The backend token usage API and Performance percentile API use the
+                // same Claude base-model display identity. This mirrored frontend
+                // helper keeps dashboard chart code idempotent for already-merged
+                // records and stable for model metadata ordering.
+                function usageModelName(id) {
+                  return id?.startsWith('claude-') ? claudeDisplayModelId(id) : id;
+                }
 
-                get baseUrl() { return location.origin; },
+                function configModelName(id) {
+                  return id?.startsWith('claude-') ? claudeDisplayModelId(id) : id;
+                }
 
-                get githubConnected() { return this.githubAccounts.length > 0; },
+                function modelContextWindow(model) {
+                  const limits = model.capabilities?.limits;
+                  const explicit = limits?.max_context_window_tokens || 0;
+                  const total = (limits?.max_prompt_tokens || 0) + (limits?.max_output_tokens || 0);
+                  const suffix = /-1m(?:-|$)/.test(model.id) ? 1000000 : 0;
+                  return Math.max(explicit, total, suffix);
+                }
 
-                get chatModelInfo() {
-                  return this.allModels.find(m => m.id === this.chatModelId) || null;
-                },
-
-                get chatModelCaps() {
-                  const s = this.chatModelInfo?.capabilities?.supports;
-                  if (!s) return [];
-                  const caps = [];
-                  if (s.vision) caps.push('vision');
-                  if (s.tool_calls) caps.push('tools');
-                  if (s.streaming) caps.push('streaming');
-                  if (s.adaptive_thinking) caps.push('thinking');
-                  return caps;
-                },
-
-                get filteredChatModels() {
-                  let models = this.allModels.filter(m => m.capabilities?.type !== 'embeddings');
-                  if (this.modelsSearch.trim()) {
-                    const q = this.modelsSearch.toLowerCase();
-                    models = models.filter(m => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q));
+                function claudeTier(id) {
+                  for (const t in CLAUDE_TIER) {
+                    if (id.includes(t)) return CLAUDE_TIER[t];
                   }
-                  const enabled = models.filter(m => m.model_picker_enabled);
-                  const legacy = models.filter(m => !m.model_picker_enabled);
-                  if (enabled.length && legacy.length) return [...enabled, { _divider: true }, ...legacy];
-                  return [...enabled, ...legacy];
-                },
+                  return 99;
+                }
 
-                get activeKey() {
-                  const sel = this.selectedKeyId && this.keys.find((k) => k.id === this.selectedKeyId);
-                  if (sel) return sel.key;
-                  return this.isAdmin ? '<your-api-key>' : this.authKey;
-                },
+                function sortClaudeBig(a, b) {
+                  const ta = claudeTier(a);
+                  const tb = claudeTier(b);
+                  return ta !== tb ? ta - tb : b.localeCompare(a);
+                }
 
-                get searchCredentialValue() {
-                  return activeCredentialValue(this.searchConfigDraft);
-                },
+                function sortClaudeSmall(a, b) {
+                  const ta = claudeTier(a);
+                  const tb = claudeTier(b);
+                  return ta !== tb ? tb - ta : b.localeCompare(a);
+                }
 
-                get searchCredentialLabel() {
-                  return this.searchConfigDraft.provider === 'tavily'
-                    ? 'Tavily API Key'
-                    : this.searchConfigDraft.provider === 'microsoft-grounding'
-                    ? 'Microsoft Grounding API Key'
-                    : 'Credential';
+                function sortClaudeSonnet(a, b) {
+                  const da = Math.abs(claudeTier(a) - CLAUDE_TIER.sonnet);
+                  const db = Math.abs(claudeTier(b) - CLAUDE_TIER.sonnet);
+                  return da !== db ? da - db : b.localeCompare(a);
+                }
+
+                function sortCodex(a, b) {
+                  const am = a.includes('mini') ? 1 : 0;
+                  const bm = b.includes('mini') ? 1 : 0;
+                  return am !== bm ? am - bm : b.localeCompare(a);
+                }
+
+                // Hono escapes interpolated strings in this template, but these helpers are
+                // embedded as executable script source, so they must be injected raw.
+                const draftFromSearchConfig = ${raw(
+                  draftFromSearchConfig.toString(),
+                )};
+                const activeCredentialValue = ${raw(
+                  activeCredentialValue.toString(),
+                )};
+                const setActiveCredentialValue = ${raw(
+                  setActiveCredentialValue.toString(),
+                )};
+                const searchConfigFromDraft = ${raw(
+                  searchConfigFromDraft.toString(),
+                )};
+
+                return {
+                  authKey: '',
+                  isAdmin,
+                  tab: initTab,
+                  meLoaded: false,
+                  githubAccounts: [],
+                  selectedGithubAccountId: null,
+                  usageData: null,
+                  usageError: false,
+                  usagePercent: 0,
+                  deviceFlow: { loading: false, userCode: null, verificationUri: null, deviceCode: null, pollTimer: null },
+                  keys: [],
+                  keysLoading: false,
+                  now: Date.now(),
+                  newKeyName: '',
+                  selectedKeyId: null,
+                  keyCreating: false,
+                  keyDeleting: null,
+                  keyRotating: null,
+                  copied: false,
+                  modelsLoaded: false,
+                  claudeModelsBig: [],
+                  claudeModelsSonnet: [],
+                  claudeModelsSmall: [],
+                  claudeContextMap: {},
+                  claudeModel: '',
+                  claudeSonnetModel: '',
+                  claudeSmallModel: '',
+                  codexModels: [],
+                  codexModel: '',
+                  tokenRange: 'today',
+                  tokenChartMetric: 'total',
+                  tokenData: [],
+                  tokenKeyMetadata: [],
+                  tokenKeyColorOrder: [],
+                  searchUsageData: [],
+                  searchUsageActiveProvider: 'disabled',
+                  searchUsageLoading: false,
+                  searchUsageKeyMetadata: [],
+                  searchUsageKeyColorOrder: [],
+                  performanceRange: 'today',
+                  performanceMetricScope: 'request_total',
+                  performanceChartView: 'model',
+                  performancePercentile: 'p95Ms',
+                  performanceModel: '',
+                  performanceSeries: [],
+                  performanceSummaryRows: [],
+                  performanceModelRows: [],
+                  performanceRuntimeRows: [],
+                  performanceLoading: false,
+                  performanceSummary: { requests: 0, errors: 0, avgMs: null, p50Ms: null, p95Ms: null, p99Ms: null },
+                  chartsReady: false,
+                  tokenLoading: false,
+                  tokenSummary: { requests: 0, total: 0, input: 0, output: 0, cacheRead: 0, cacheCreation: 0, prefill: 0 },
+                  hiddenKeys: new Set(),
+                  hiddenModels: new Set(),
+                  redactKeys: false,
+                  exportLoading: false,
+                  exportIncludePerformance: false,
+                  importFile: null,
+                  importData: null,
+                  importMode: 'merge',
+                  importLoading: false,
+                  importPreview: { ready: false, exportedAt: null, apiKeys: 0, githubAccounts: 0, usage: 0, searchUsage: 0, performance: 0 },
+                  expandedUnavailableAccountId: null,
+                  // Models tab — chat playground
+                  allModels: [],
+                  modelsSearch: '',
+                  chatModelId: '',
+                  chatMessages: [],     // {role, text, imageUrl?}
+                  chatInput: '',
+                  chatImageUrl: '',
+                  chatShowImage: false,
+                  chatSending: false,
+                  chatStreamText: '',
+                  searchConfigDraft: draftFromSearchConfig({
+                    provider: 'disabled',
+                    tavily: { apiKey: '' },
+                    microsoftGrounding: { apiKey: '' },
+                  }),
+                  searchConfigLoaded: false,
+                  searchConfigSaving: false,
+                  searchConfigTesting: false,
+                  searchConfigTestResult: null,
+                  _chatAbort: null,
+
+                  get baseUrl() { return location.origin; },
+
+                  get githubConnected() { return this.githubAccounts.length > 0; },
+
+                  get chatModelInfo() {
+                    return this.allModels.find(m => m.id === this.chatModelId) || null;
                   },
 
-                  setSearchCredentialValue(value) {
-                    this.searchConfigDraft = setActiveCredentialValue(this.searchConfigDraft, value);
-                    this.searchConfigTestResult = null;
+                  get chatModelCaps() {
+                    const s = this.chatModelInfo?.capabilities?.supports;
+                    if (!s) return [];
+                    const caps = [];
+                    if (s.vision) caps.push('vision');
+                    if (s.tool_calls) caps.push('tools');
+                    if (s.streaming) caps.push('streaming');
+                    if (s.adaptive_thinking) caps.push('thinking');
+                    return caps;
                   },
 
-                  setSearchConfigProvider(provider) {
-                    this.searchConfigDraft = { ...this.searchConfigDraft, provider };
-                    this.searchConfigTestResult = null;
+                  get filteredChatModels() {
+                    let models = this.allModels.filter(m => m.capabilities?.type !== 'embeddings');
+                    if (this.modelsSearch.trim()) {
+                      const q = this.modelsSearch.toLowerCase();
+                      models = models.filter(m => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q));
+                    }
+                    const enabled = models.filter(m => m.model_picker_enabled);
+                    const legacy = models.filter(m => !m.model_picker_enabled);
+                    if (enabled.length && legacy.length) return [...enabled, { _divider: true }, ...legacy];
+                    return [...enabled, ...legacy];
                   },
 
-                  truncateKey(key) {
-                    if (!key || key.length <= 12) return key;
-                    return key.slice(0, 4) + '\\u2026' + key.slice(-4);
+                  get activeKey() {
+                    const sel = this.selectedKeyId && this.keys.find((k) => k.id === this.selectedKeyId);
+                    if (sel) return sel.key;
+                    return this.isAdmin ? '<your-api-key>' : this.authKey;
                   },
 
-                  formatHitRate(cacheRead, cacheCreation) {
-                    return renderHitRate(cacheRead, cacheCreation);
+                  get searchCredentialValue() {
+                    return activeCredentialValue(this.searchConfigDraft);
                   },
 
-                  formatInputRate(tokens, input) {
-                    return renderInputRate(tokens, input);
-                  },
-
-                  timeAgo(dateStr) {
-                    if (!dateStr) return null;
-                    const date = new Date(dateStr);
-                    const diff = this.now - date;
-                    const seconds = Math.floor(diff / 1000);
-                    if (seconds < 60) return 'just now';
-                    const minutes = Math.floor(seconds / 60);
-                    if (minutes < 60) return minutes + (minutes === 1 ? ' minute ago' : ' minutes ago');
-                    const hours = Math.floor(minutes / 60);
-                    if (hours < 24) return hours + (hours === 1 ? ' hour ago' : ' hours ago');
-                    const days = Math.floor(hours / 24);
-                    if (days <= 30) return days + (days === 1 ? ' day ago' : ' days ago');
-                    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                  },
-
-                  fullDateTime(dateStr) {
-                    if (!dateStr) return '';
-                    const d = new Date(dateStr);
-                    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())
-                      + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+                  get searchCredentialLabel() {
+                    return this.searchConfigDraft.provider === 'tavily'
+                      ? 'Tavily API Key'
+                      : this.searchConfigDraft.provider === 'microsoft-grounding'
+                      ? 'Microsoft Grounding API Key'
+                      : 'Credential';
                     },
 
-                    claudeCodeSnippet() {
-                      const addCtx = (id) => {
-                        const p = this.claudeContextMap[id];
-                        return p >= 1000000 ? id + '[1m]' : id;
-                      };
-                      const lines = [
-                        'export ANTHROPIC_BASE_URL=' + this.baseUrl,
-                        'export ANTHROPIC_AUTH_TOKEN=' + this.activeKey,
-                        'export ANTHROPIC_MODEL=' + addCtx(this.claudeModel),
-                        'export ANTHROPIC_DEFAULT_SONNET_MODEL=' + addCtx(this.claudeSonnetModel),
-                        'export ANTHROPIC_DEFAULT_HAIKU_MODEL=' + this.claudeSmallModel,
-                      ];
-                      return lines.join('\\n');
+                    setSearchCredentialValue(value) {
+                      this.searchConfigDraft = setActiveCredentialValue(this.searchConfigDraft, value);
+                      this.searchConfigTestResult = null;
                     },
 
-                    codexSnippet() {
-                      const lines = [
-                        'model = "' + this.codexModel + '"',
-                        'model_provider = "copilot_gateway"',
-                        '',
-                        '[model_providers.copilot_gateway]',
-                        'name = "Copilot Gateway"',
-                        'base_url = "' + this.baseUrl + '/"',
-                        'env_key = "COPILOT_GATEWAY_API_KEY"',
-                        'wire_api = "responses"',
-                      ];
-                      return lines.join('\\n');
+                    setSearchConfigProvider(provider) {
+                      this.searchConfigDraft = { ...this.searchConfigDraft, provider };
+                      this.searchConfigTestResult = null;
                     },
 
-                    codexEnvSnippet() {
-                      return 'export COPILOT_GATEWAY_API_KEY=' + this.activeKey;
+                    truncateKey(key) {
+                      if (!key || key.length <= 12) return key;
+                      return key.slice(0, 4) + '\\u2026' + key.slice(-4);
                     },
 
-                    init() {
-                      this.authKey = localStorage.getItem('authKey') || '';
-                      if (!this.authKey) {
-                        window.location.href = '/';
-                        return;
-                      }
-
-                      const modelsReady = this.ensureModelsLoaded();
-
-                      if (this.tab === 'upstream' && this.isAdmin) {
-                        this.loadMe().then(() => this.loadUsage());
-                        this.loadSearchConfig();
-                      } else if (this.tab === 'keys') {
-                        this.loadKeys();
-                      } else if (this.tab === 'usage') {
-                        this.loadUsageTabData(modelsReady);
-                      }
-
-                      setInterval(() => {
-                        if (this.tab === 'upstream' && this.isAdmin) this.loadUsage();
-                        if (this.tab === 'usage') this.loadUsageTabData();
-                      }, 60000);
-
-                      setInterval(() => {
-                        this.now = Date.now();
-                      }, 30000);
-
-                      window.addEventListener('hashchange', () => {
-                        const h = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : defaultTab;
-                        if (this.tab !== h) this.switchTab(h);
-                      });
+                    formatHitRate(cacheRead, cacheCreation) {
+                      return renderHitRate(cacheRead, cacheCreation);
                     },
 
-                    authHeaders() { return { 'x-api-key': this.authKey }; },
-
-                    async switchTab(t) {
-                      if (t !== 'usage') {
-                        destroyCharts();
-                        this.chartsReady = false;
-                      }
-                      this.tab = t;
-                      location.hash = '#' + t;
-                      if (t === 'upstream' && this.isAdmin) {
-                        if (!this.meLoaded) await this.loadMe();
-                        await this.loadUsage();
-                        if (!this.searchConfigLoaded) this.loadSearchConfig();
-                      } else if (t === 'usage') {
-                        this.tokenLoading = true;
-                        this.searchUsageLoading = true;
-                        await this.loadUsageTabData();
-                      } else if (t === 'keys') {
-                        await this.loadKeys();
-                      } else if (t === 'models') {
-                        if (this.allModels.length === 0) await this.loadAllModels();
-                      }
+                    formatInputRate(tokens, input) {
+                      return renderInputRate(tokens, input);
                     },
 
-                    ensureModelsLoaded() {
-                      if (this.modelsLoaded || this.allModels.length > 0) return Promise.resolve();
-                      if (!_modelsLoadPromise) {
-                        _modelsLoadPromise = this.loadModels().finally(() => {
-                          _modelsLoadPromise = null;
-                        });
-                      }
-                      return _modelsLoadPromise;
+                    formatDuration(ms) {
+                      return formatDurationMs(ms);
                     },
 
-                    async loadModels() {
-                      try {
-                        const resp = await fetch('/api/models', { headers: this.authHeaders() });
-                        if (!resp.ok) {
-                          console.error('loadModels: HTTP', resp.status);
+                    performancePercentileLabel(metric = this.performancePercentile) {
+                      if (metric === 'p50Ms') return 'p50';
+                      if (metric === 'p99Ms') return 'p99';
+                      return 'p95';
+                    },
+
+                    performanceModelOptions() {
+                      return [...new Set(this.performanceSeries.map((row) => row.group))].sort();
+                    },
+
+                    timeAgo(dateStr) {
+                      if (!dateStr) return null;
+                      const date = new Date(dateStr);
+                      const diff = this.now - date;
+                      const seconds = Math.floor(diff / 1000);
+                      if (seconds < 60) return 'just now';
+                      const minutes = Math.floor(seconds / 60);
+                      if (minutes < 60) return minutes + (minutes === 1 ? ' minute ago' : ' minutes ago');
+                      const hours = Math.floor(minutes / 60);
+                      if (hours < 24) return hours + (hours === 1 ? ' hour ago' : ' hours ago');
+                      const days = Math.floor(hours / 24);
+                      if (days <= 30) return days + (days === 1 ? ' day ago' : ' days ago');
+                      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    },
+
+                    fullDateTime(dateStr) {
+                      if (!dateStr) return '';
+                      const d = new Date(dateStr);
+                      return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())
+                        + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+                      },
+
+                      claudeCodeSnippet() {
+                        const addCtx = (id) => {
+                          const p = this.claudeContextMap[id];
+                          return p >= 1000000 ? id + '[1m]' : id;
+                        };
+                        const lines = [
+                          'export ANTHROPIC_BASE_URL=' + this.baseUrl,
+                          'export ANTHROPIC_AUTH_TOKEN=' + this.activeKey,
+                          'export ANTHROPIC_MODEL=' + addCtx(this.claudeModel),
+                          'export ANTHROPIC_DEFAULT_SONNET_MODEL=' + addCtx(this.claudeSonnetModel),
+                          'export ANTHROPIC_DEFAULT_HAIKU_MODEL=' + this.claudeSmallModel,
+                        ];
+                        return lines.join('\\n');
+                      },
+
+                      codexSnippet() {
+                        const lines = [
+                          'model = "' + this.codexModel + '"',
+                          'model_provider = "copilot_gateway"',
+                          '',
+                          '[model_providers.copilot_gateway]',
+                          'name = "Copilot Gateway"',
+                          'base_url = "' + this.baseUrl + '/"',
+                          'env_key = "COPILOT_GATEWAY_API_KEY"',
+                          'wire_api = "responses"',
+                        ];
+                        return lines.join('\\n');
+                      },
+
+                      codexEnvSnippet() {
+                        return 'export COPILOT_GATEWAY_API_KEY=' + this.activeKey;
+                      },
+
+                      init() {
+                        this.authKey = localStorage.getItem('authKey') || '';
+                        if (!this.authKey) {
+                          window.location.href = '/';
                           return;
                         }
-                        const { data: rawData } = await resp.json();
-                        const data = rawData;
+
+                        const modelsReady = this.ensureModelsLoaded();
+
+                        if (this.tab === 'upstream' && this.isAdmin) {
+                          this.loadMe().then(() => this.loadUsage());
+                          this.loadSearchConfig();
+                        } else if (this.tab === 'keys') {
+                          this.loadKeys();
+                        } else if (this.tab === 'usage') {
+                          this.loadUsageTabData(modelsReady);
+                        } else if (this.tab === 'performance') {
+                          this.loadPerformanceTabData();
+                        }
+
+                        setInterval(() => {
+                          if (this.tab === 'upstream' && this.isAdmin) this.loadUsage();
+                          if (this.tab === 'usage') this.loadUsageTabData();
+                          if (this.tab === 'performance') this.loadPerformanceTabData();
+                        }, 60000);
+
+                        setInterval(() => {
+                          this.now = Date.now();
+                        }, 30000);
+
+                        window.addEventListener('hashchange', () => {
+                          const h = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : defaultTab;
+                          if (this.tab !== h) this.switchTab(h);
+                        });
+                      },
+
+                      authHeaders() { return { 'x-api-key': this.authKey }; },
+
+                      async switchTab(t) {
+                        if (t !== this.tab) {
+                          destroyCharts();
+                          this.chartsReady = false;
+                        }
+                        this.tab = t;
+                        location.hash = '#' + t;
+                        if (t === 'upstream' && this.isAdmin) {
+                          if (!this.meLoaded) await this.loadMe();
+                          await this.loadUsage();
+                          if (!this.searchConfigLoaded) this.loadSearchConfig();
+                        } else if (t === 'usage') {
+                          this.tokenLoading = true;
+                          this.searchUsageLoading = true;
+                          await this.loadUsageTabData();
+                        } else if (t === 'performance') {
+                          this.performanceLoading = true;
+                          await this.loadPerformanceTabData();
+                        } else if (t === 'keys') {
+                          await this.loadKeys();
+                        } else if (t === 'models') {
+                          if (this.allModels.length === 0) await this.loadAllModels();
+                        }
+                      },
+
+                      ensureModelsLoaded() {
+                        if (this.modelsLoaded || this.allModels.length > 0) return Promise.resolve();
+                        if (!_modelsLoadPromise) {
+                          _modelsLoadPromise = this.loadModels().finally(() => {
+                            _modelsLoadPromise = null;
+                          });
+                        }
+                        return _modelsLoadPromise;
+                      },
+
+                      async loadModels() {
+                        try {
+                          const resp = await fetch('/api/models', { headers: this.authHeaders() });
+                          if (!resp.ok) {
+                            console.error('loadModels: HTTP', resp.status);
+                            return;
+                          }
+                          const { data: rawData } = await resp.json();
+                          const data = rawData;
 
                           this.allModels = data;
                           if (!this.chatModelId) {
@@ -592,295 +636,295 @@ export function dashboardAssets() {
                             if (first) this.chatModelId = first.id;
                           }
 
-                            const claudeFiltered = data
-                            .filter((m) => m.id.startsWith('claude-') && m.supported_endpoints?.includes('/v1/messages'));
+                          const claudeFiltered = data
+                          .filter((m) => m.id.startsWith('claude-') && m.supported_endpoints?.includes('/v1/messages'));
 
-                            const claudeContextByModel = new Map();
-                            this.claudeContextMap = {};
-                            for (const m of claudeFiltered) {
-                              const id = configModelName(m.id);
-                              const total = modelContextWindow(m);
-                              claudeContextByModel.set(id, Math.max(total, claudeContextByModel.get(id) || 0));
-                            }
-                            this.claudeContextMap = Object.fromEntries(claudeContextByModel);
-                            const claudeAll = [...claudeContextByModel.keys()];
-
-                            this.claudeModelsBig = [...claudeAll].sort(sortClaudeBig);
-                            this.claudeModelsSonnet = [...claudeAll].sort(sortClaudeSonnet);
-                            this.claudeModelsSmall = [...claudeAll].sort(sortClaudeSmall);
-                            this.claudeModel = this.claudeModelsBig[0] || '';
-                            this.claudeSonnetModel = this.claudeModelsSonnet[0] || '';
-                            this.claudeSmallModel = this.claudeModelsSmall[0] || '';
-
-                            this.codexModels = [...new Set(data
-                              .filter((m) => m.supported_endpoints?.includes('/responses'))
-                              .map((m) => configModelName(m.id)))]
-                              .sort(sortCodex);
-                            this.codexModel = this.codexModels[0] || '';
-
-                            this.modelsLoaded = true;
-                            if (this.tab === 'usage' && this.chartsReady) {
-                              await this.$nextTick();
-                              this.renderTokenCharts();
-                            }
-                          } catch (e) {
-                            console.error('loadModels:', e);
+                          const claudeContextByModel = new Map();
+                          this.claudeContextMap = {};
+                          for (const m of claudeFiltered) {
+                            const id = configModelName(m.id);
+                            const total = modelContextWindow(m);
+                            claudeContextByModel.set(id, Math.max(total, claudeContextByModel.get(id) || 0));
                           }
-                        },
+                          this.claudeContextMap = Object.fromEntries(claudeContextByModel);
+                          const claudeAll = [...claudeContextByModel.keys()];
 
-                        async loadMe() {
-                          try {
-                            const resp = await fetch('/auth/me', { headers: this.authHeaders() });
-                            if (resp.status === 401) {
-                              this.logout();
-                              return;
-                            }
-                          const data = await resp.json();
-                          this.githubAccounts = data.accounts || [];
-                          if (!this.githubAccounts.some((acct) => acct.id === this.selectedGithubAccountId)) {
-                            this.selectedGithubAccountId = this.githubAccounts[0]?.id ?? null;
-                          }
-                          if (!this.githubAccounts.some((acct) => acct.id === this.expandedUnavailableAccountId)) {
-                            this.expandedUnavailableAccountId = null;
-                          }
-                          } catch (e) {
-                            console.error('loadMe:', e);
-                          } finally {
-                            this.meLoaded = true;
-                          }
-                        },
+                          this.claudeModelsBig = [...claudeAll].sort(sortClaudeBig);
+                          this.claudeModelsSonnet = [...claudeAll].sort(sortClaudeSonnet);
+                          this.claudeModelsSmall = [...claudeAll].sort(sortClaudeSmall);
+                          this.claudeModel = this.claudeModelsBig[0] || '';
+                          this.claudeSonnetModel = this.claudeModelsSonnet[0] || '';
+                          this.claudeSmallModel = this.claudeModelsSmall[0] || '';
 
-                        async loadUsage() {
-                          if (!this.selectedGithubAccountId) {
-                            this.usageData = null;
-                            this.usageError = false;
-                            this.usagePercent = 0;
+                          this.codexModels = [...new Set(data
+                            .filter((m) => m.supported_endpoints?.includes('/responses'))
+                            .map((m) => configModelName(m.id)))]
+                            .sort(sortCodex);
+                          this.codexModel = this.codexModels[0] || '';
+
+                          this.modelsLoaded = true;
+                          if (this.tab === 'usage' && this.chartsReady) {
+                            await this.$nextTick();
+                            this.renderTokenCharts();
+                          }
+                        } catch (e) {
+                          console.error('loadModels:', e);
+                        }
+                      },
+
+                      async loadMe() {
+                        try {
+                          const resp = await fetch('/auth/me', { headers: this.authHeaders() });
+                          if (resp.status === 401) {
+                            this.logout();
                             return;
                           }
-                          try {
-                            const resp = await fetch('/api/copilot-quota?user_id=' + encodeURIComponent(this.selectedGithubAccountId), { headers: this.authHeaders() });
-                            if (resp.status === 401) {
-                              this.logout();
-                              return;
-                            }
-                            if (resp.ok) {
-                              this.usageData = await resp.json();
-                              const pi = this.usageData.quota_snapshots.premium_interactions;
-                              this.usagePercent = pi.entitlement > 0
-                                ? Math.round(((pi.entitlement - pi.remaining) / pi.entitlement) * 100)
-                                : 0;
-                              this.usageError = false;
-                            } else {
-                              this.usageError = true;
-                            }
-                          } catch {
+                        const data = await resp.json();
+                        this.githubAccounts = data.accounts || [];
+                        if (!this.githubAccounts.some((acct) => acct.id === this.selectedGithubAccountId)) {
+                          this.selectedGithubAccountId = this.githubAccounts[0]?.id ?? null;
+                        }
+                        if (!this.githubAccounts.some((acct) => acct.id === this.expandedUnavailableAccountId)) {
+                          this.expandedUnavailableAccountId = null;
+                        }
+                        } catch (e) {
+                          console.error('loadMe:', e);
+                        } finally {
+                          this.meLoaded = true;
+                        }
+                      },
+
+                      async loadUsage() {
+                        if (!this.selectedGithubAccountId) {
+                          this.usageData = null;
+                          this.usageError = false;
+                          this.usagePercent = 0;
+                          return;
+                        }
+                        try {
+                          const resp = await fetch('/api/copilot-quota?user_id=' + encodeURIComponent(this.selectedGithubAccountId), { headers: this.authHeaders() });
+                          if (resp.status === 401) {
+                            this.logout();
+                            return;
+                          }
+                          if (resp.ok) {
+                            this.usageData = await resp.json();
+                            const pi = this.usageData.quota_snapshots.premium_interactions;
+                            this.usagePercent = pi.entitlement > 0
+                              ? Math.round(((pi.entitlement - pi.remaining) / pi.entitlement) * 100)
+                              : 0;
+                            this.usageError = false;
+                          } else {
                             this.usageError = true;
                           }
-                        },
+                        } catch {
+                          this.usageError = true;
+                        }
+                      },
 
-                        async loadSearchConfig() {
-                          try {
-                            const resp = await fetch('/api/search-config', { headers: this.authHeaders() });
-                            if (resp.status === 401) {
-                              this.logout();
-                              return;
-                            }
-                            if (!resp.ok) {
-                              console.error('loadSearchConfig: HTTP', resp.status);
-                              return;
-                            }
-                            this.searchConfigDraft = draftFromSearchConfig(await resp.json());
-                            this.searchConfigLoaded = true;
-                            this.searchConfigTestResult = null;
-                          } catch (e) {
-                            console.error('loadSearchConfig:', e);
+                      async loadSearchConfig() {
+                        try {
+                          const resp = await fetch('/api/search-config', { headers: this.authHeaders() });
+                          if (resp.status === 401) {
+                            this.logout();
+                            return;
                           }
-                        },
-
-                        async saveSearchConfig() {
-                          this.searchConfigSaving = true;
-                          try {
-                            const resp = await fetch('/api/search-config', {
-                              method: 'PUT',
-                              headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
-                              body: JSON.stringify(searchConfigFromDraft(this.searchConfigDraft)),
-                            });
-                            if (resp.status === 401) {
-                              this.logout();
-                              return;
-                            }
-                            if (!resp.ok) {
-                              console.error('saveSearchConfig: HTTP', resp.status);
-                              return;
-                            }
-                            this.searchConfigDraft = draftFromSearchConfig(await resp.json());
-                            this.searchConfigLoaded = true;
-                          } catch (e) {
-                            console.error('saveSearchConfig:', e);
-                          } finally {
-                            this.searchConfigSaving = false;
+                          if (!resp.ok) {
+                            console.error('loadSearchConfig: HTTP', resp.status);
+                            return;
                           }
-                        },
-
-                        async testSearchConfig() {
-                          this.searchConfigTesting = true;
+                          this.searchConfigDraft = draftFromSearchConfig(await resp.json());
+                          this.searchConfigLoaded = true;
                           this.searchConfigTestResult = null;
+                        } catch (e) {
+                          console.error('loadSearchConfig:', e);
+                        }
+                      },
+
+                      async saveSearchConfig() {
+                        this.searchConfigSaving = true;
+                        try {
+                          const resp = await fetch('/api/search-config', {
+                            method: 'PUT',
+                            headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+                            body: JSON.stringify(searchConfigFromDraft(this.searchConfigDraft)),
+                          });
+                          if (resp.status === 401) {
+                            this.logout();
+                            return;
+                          }
+                          if (!resp.ok) {
+                            console.error('saveSearchConfig: HTTP', resp.status);
+                            return;
+                          }
+                          this.searchConfigDraft = draftFromSearchConfig(await resp.json());
+                          this.searchConfigLoaded = true;
+                        } catch (e) {
+                          console.error('saveSearchConfig:', e);
+                        } finally {
+                          this.searchConfigSaving = false;
+                        }
+                      },
+
+                      async testSearchConfig() {
+                        this.searchConfigTesting = true;
+                        this.searchConfigTestResult = null;
+                        try {
+                          const resp = await fetch('/api/search-config/test', {
+                            method: 'POST',
+                            headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+                            body: JSON.stringify(searchConfigFromDraft(this.searchConfigDraft)),
+                          });
+                          if (resp.status === 401) {
+                            this.logout();
+                            return;
+                          }
+                          this.searchConfigTestResult = await resp.json();
+                        } catch (e) {
+                          console.error('testSearchConfig:', e);
+                        } finally {
+                          this.searchConfigTesting = false;
+                        }
+                      },
+
+                      formatDate(s) {
+                        return s ? new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+                      },
+
+                      async startGithubAuth() {
+                        this.deviceFlow.loading = true;
+                        try {
+                          const resp = await fetch('/auth/github', { headers: this.authHeaders() });
+                          if (resp.status === 401) {
+                            this.logout();
+                            return;
+                          }
+                          const d = await resp.json();
+                          if (d.user_code) {
+                            Object.assign(this.deviceFlow, {
+                              userCode: d.user_code,
+                              verificationUri: d.verification_uri,
+                              deviceCode: d.device_code,
+                            });
+                            this.pollDeviceFlow(d.interval || 5);
+                          }
+                        } catch (e) {
+                          console.error('startGithubAuth:', e);
+                        } finally {
+                          this.deviceFlow.loading = false;
+                        }
+                      },
+
+                      pollDeviceFlow(interval) {
+                        this.deviceFlow.pollTimer = setInterval(async () => {
                           try {
-                            const resp = await fetch('/api/search-config/test', {
+                            const resp = await fetch('/auth/github/poll', {
                               method: 'POST',
                               headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
-                              body: JSON.stringify(searchConfigFromDraft(this.searchConfigDraft)),
+                              body: JSON.stringify({ device_code: this.deviceFlow.deviceCode }),
                             });
-                            if (resp.status === 401) {
-                              this.logout();
-                              return;
-                            }
-                            this.searchConfigTestResult = await resp.json();
-                          } catch (e) {
-                            console.error('testSearchConfig:', e);
-                          } finally {
-                            this.searchConfigTesting = false;
-                          }
-                        },
-
-                        formatDate(s) {
-                          return s ? new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
-                        },
-
-                        async startGithubAuth() {
-                          this.deviceFlow.loading = true;
-                          try {
-                            const resp = await fetch('/auth/github', { headers: this.authHeaders() });
                             if (resp.status === 401) {
                               this.logout();
                               return;
                             }
                             const d = await resp.json();
-                            if (d.user_code) {
-                              Object.assign(this.deviceFlow, {
-                                userCode: d.user_code,
-                                verificationUri: d.verification_uri,
-                                deviceCode: d.device_code,
-                              });
-                              this.pollDeviceFlow(d.interval || 5);
-                            }
-                          } catch (e) {
-                            console.error('startGithubAuth:', e);
-                          } finally {
-                            this.deviceFlow.loading = false;
-                          }
-                        },
-
-                        pollDeviceFlow(interval) {
-                          this.deviceFlow.pollTimer = setInterval(async () => {
-                            try {
-                              const resp = await fetch('/auth/github/poll', {
-                                method: 'POST',
-                                headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ device_code: this.deviceFlow.deviceCode }),
-                              });
-                              if (resp.status === 401) {
-                                this.logout();
-                                return;
-                              }
-                              const d = await resp.json();
-                              if (d.status === 'complete') {
-                                this.cancelDeviceFlow();
-                                await this.loadMe();
-                                await this.loadUsage();
-                              } else if (d.status === 'slow_down') {
-                                clearInterval(this.deviceFlow.pollTimer);
-                                this.pollDeviceFlow((d.interval || interval) + 1);
-                              } else if (d.status === 'error') {
-                                this.cancelDeviceFlow();
-                                alert('Authorization failed: ' + d.error);
-                              }
-                            } catch (e) {
-                              console.error('poll:', e);
-                            }
-                          }, interval * 1000);
-                        },
-
-                        cancelDeviceFlow() {
-                          clearInterval(this.deviceFlow.pollTimer);
-                          Object.assign(this.deviceFlow, {
-                            pollTimer: null,
-                            userCode: null,
-                            verificationUri: null,
-                            deviceCode: null,
-                          });
-                        },
-
-                        async disconnectGithub(userId, login) {
-                          if (!confirm('Disconnect @' + login + '? The stored token will be deleted.')) return;
-                          try {
-                            const resp = await fetch('/auth/github/' + userId, { method: 'DELETE', headers: this.authHeaders() });
-                            if (resp.status === 401) {
-                              this.logout();
-                              return;
-                            }
-                            if (resp.ok) {
-                              await this.loadMe();
-                              if (!this.githubConnected) {
-                                this.usageData = null;
-                                this.usageError = false;
-                                this.usagePercent = 0;
-                              } else {
-                                await this.loadUsage();
-                              }
-                            } else {
-                              alert('Failed to disconnect GitHub account');
-                            }
-                          } catch (e) {
-                            console.error('disconnectGithub:', e);
-                          }
-                        },
-
-                        async selectGithubAccount(userId) {
-                          if (this.selectedGithubAccountId === userId) return;
-                          this.selectedGithubAccountId = userId;
-                          await this.loadUsage();
-                        },
-
-                        async moveGithubAccount(userId, direction) {
-                          const index = this.githubAccounts.findIndex((acct) => acct.id === userId);
-                          const nextIndex = index + direction;
-                          if (index < 0 || nextIndex < 0 || nextIndex >= this.githubAccounts.length) return;
-
-                          const ordered = [...this.githubAccounts];
-                          const current = ordered[index];
-                          ordered[index] = ordered[nextIndex];
-                          ordered[nextIndex] = current;
-
-                          try {
-                            const resp = await fetch('/auth/github/order', {
-                              method: 'POST',
-                              headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ user_ids: ordered.map((acct) => acct.id) }),
-                            });
-                            if (resp.status === 401) {
-                              this.logout();
-                              return;
-                            }
-                            if (resp.ok) {
-                              this.githubAccounts = ordered;
+                            if (d.status === 'complete') {
+                              this.cancelDeviceFlow();
                               await this.loadMe();
                               await this.loadUsage();
-                            } else {
-                              alert('Failed to update account order');
+                            } else if (d.status === 'slow_down') {
+                              clearInterval(this.deviceFlow.pollTimer);
+                              this.pollDeviceFlow((d.interval || interval) + 1);
+                            } else if (d.status === 'error') {
+                              this.cancelDeviceFlow();
+                              alert('Authorization failed: ' + d.error);
                             }
                           } catch (e) {
-                            console.error('moveGithubAccount:', e);
+                            console.error('poll:', e);
                           }
-                        },
+                        }, interval * 1000);
+                      },
 
-                        unavailableModels(acct) {
-                          return Array.isArray(acct?.temporarily_unavailable_models)
-                            ? acct.temporarily_unavailable_models.filter((status) => {
-                              const expiresAt = Date.parse(status.expires_at || '');
-                              return Number.isFinite(expiresAt) && expiresAt > this.now;
-                            })
-                            : [];
+                      cancelDeviceFlow() {
+                        clearInterval(this.deviceFlow.pollTimer);
+                        Object.assign(this.deviceFlow, {
+                          pollTimer: null,
+                          userCode: null,
+                          verificationUri: null,
+                          deviceCode: null,
+                        });
+                      },
+
+                      async disconnectGithub(userId, login) {
+                        if (!confirm('Disconnect @' + login + '? The stored token will be deleted.')) return;
+                        try {
+                          const resp = await fetch('/auth/github/' + userId, { method: 'DELETE', headers: this.authHeaders() });
+                          if (resp.status === 401) {
+                            this.logout();
+                            return;
+                          }
+                          if (resp.ok) {
+                            await this.loadMe();
+                            if (!this.githubConnected) {
+                              this.usageData = null;
+                              this.usageError = false;
+                              this.usagePercent = 0;
+                            } else {
+                              await this.loadUsage();
+                            }
+                          } else {
+                            alert('Failed to disconnect GitHub account');
+                          }
+                        } catch (e) {
+                          console.error('disconnectGithub:', e);
+                        }
+                      },
+
+                      async selectGithubAccount(userId) {
+                        if (this.selectedGithubAccountId === userId) return;
+                        this.selectedGithubAccountId = userId;
+                        await this.loadUsage();
+                      },
+
+                      async moveGithubAccount(userId, direction) {
+                        const index = this.githubAccounts.findIndex((acct) => acct.id === userId);
+                        const nextIndex = index + direction;
+                        if (index < 0 || nextIndex < 0 || nextIndex >= this.githubAccounts.length) return;
+
+                        const ordered = [...this.githubAccounts];
+                        const current = ordered[index];
+                        ordered[index] = ordered[nextIndex];
+                        ordered[nextIndex] = current;
+
+                        try {
+                          const resp = await fetch('/auth/github/order', {
+                            method: 'POST',
+                            headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ user_ids: ordered.map((acct) => acct.id) }),
+                          });
+                          if (resp.status === 401) {
+                            this.logout();
+                            return;
+                          }
+                          if (resp.ok) {
+                            this.githubAccounts = ordered;
+                            await this.loadMe();
+                            await this.loadUsage();
+                          } else {
+                            alert('Failed to update account order');
+                          }
+                        } catch (e) {
+                          console.error('moveGithubAccount:', e);
+                        }
+                      },
+
+                      unavailableModels(acct) {
+                        return Array.isArray(acct?.temporarily_unavailable_models)
+                          ? acct.temporarily_unavailable_models.filter((status) => {
+                            const expiresAt = Date.parse(status.expires_at || '');
+                            return Number.isFinite(expiresAt) && expiresAt > this.now;
+                          })
+                          : [];
                         },
 
                         hasUnavailableModels(acct) {
@@ -1135,14 +1179,33 @@ export function dashboardAssets() {
                           }
                         },
 
-                        async loadTokenUsage() {
-                          await this.loadUsageTabData();
+                        performanceRangeParams() {
+                          const now = new Date();
+                          const rangeStart = new Date(now);
+                          if (this.performanceRange === 'today') {
+                            rangeStart.setTime(now.getTime() - 23 * 3600000);
+                            rangeStart.setMinutes(0, 0, 0);
+                          } else if (this.performanceRange === '7d') {
+                            rangeStart.setDate(rangeStart.getDate() - 6);
+                            rangeStart.setHours(0, 0, 0, 0);
+                          } else {
+                            rangeStart.setDate(rangeStart.getDate() - 29);
+                            rangeStart.setHours(0, 0, 0, 0);
+                          }
+                          return {
+                            start: rangeStart.toISOString().slice(0, 13),
+                            end: new Date(now.getTime() + 3600000).toISOString().slice(0, 13),
+                          };
                         },
 
-                        buildBucketMap() {
+                        performanceBucketGranularity() {
+                          return this.performanceRange === 'today' ? 'hour' : 'day';
+                        },
+
+                        buildPerformanceBucketMap() {
                           const bucketMap = new Map();
                           const now = new Date();
-                          if (this.tokenRange === 'today') {
+                          if (this.performanceRange === 'today') {
                             const cur = new Date(now);
                             cur.setMinutes(0, 0, 0);
                             for (let i = 23; i >= 0; i--) {
@@ -1151,7 +1214,7 @@ export function dashboardAssets() {
                               bucketMap.set(this.localHourKey(d), String(h).padStart(2, '0') + ':00 \\u2013 ' + String((h + 1) % 24).padStart(2, '0') + ':00');
                             }
                           } else {
-                            const days = this.tokenRange === '7d' ? 7 : 30;
+                            const days = this.performanceRange === '7d' ? 7 : 30;
                             for (let i = days - 1; i >= 0; i--) {
                               const d = new Date(now);
                               d.setDate(d.getDate() - i);
@@ -1162,656 +1225,855 @@ export function dashboardAssets() {
                           return bucketMap;
                         },
 
-                        aggregateBuckets(records, dimension, metric = this.tokenChartMetric) {
-                          const isDaily = this.tokenRange !== 'today';
-                          const bucketMap = this.buildBucketMap();
-                          const agg = new Map();
-                          const detail = new Map();
-                          for (const [key] of bucketMap) {
-                            agg.set(key, new Map());
-                            detail.set(key, new Map());
-                          }
-                          for (const r of records) {
-                            const utc = new Date(r.hour + ':00:00Z');
-                            const bucket = isDaily ? this.localDateKey(utc) : this.localHourKey(utc);
-                            if (!agg.has(bucket)) continue;
-                            const m = agg.get(bucket);
-                            const val = dimension === 'model' ? usageModelName(r.model) : r[dimension];
-                            if (!isTokenChartPercentMetric(metric)) {
-                              m.set(val, (m.get(val) || 0) + tokenChartMetricRecordValue(r, metric));
-                            }
-                            const dm = detail.get(bucket);
-                            const prev = dm.get(val) || { requests: 0, input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
-                            prev.requests += r.requests;
-                            prev.input += r.inputTokens;
-                            prev.output += r.outputTokens;
-                            prev.cacheRead += r.cacheReadTokens ?? 0;
-                            prev.cacheCreation += r.cacheCreationTokens ?? 0;
-                            dm.set(val, prev);
-                          }
-                          if (isTokenChartPercentMetric(metric)) {
-                            for (const [bucket, values] of detail) {
-                              const m = agg.get(bucket);
-                              for (const [val, item] of values) {
-                                m.set(val, tokenChartMetricDetailValue(item, metric));
-                              }
-                            }
-                          }
-                          return { bucketMap, agg, detail };
-                        },
-
-                        aggregateSearchUsageBuckets(records) {
-                          const isDaily = this.tokenRange !== 'today';
-                          const bucketMap = this.buildBucketMap();
-                          const agg = new Map();
-                          const detail = new Map();
-                          for (const [key] of bucketMap) {
-                            agg.set(key, new Map());
-                            detail.set(key, new Map());
-                          }
-                          for (const r of records) {
-                            const utc = new Date(r.hour + ':00:00Z');
-                            const bucket = isDaily ? this.localDateKey(utc) : this.localHourKey(utc);
-                            if (!agg.has(bucket)) continue;
-                            const m = agg.get(bucket);
-                            m.set(r.keyId, (m.get(r.keyId) || 0) + r.requests);
-                            const dm = detail.get(bucket);
-                            dm.set(r.keyId, (dm.get(r.keyId) || 0) + r.requests);
-                          }
-                          return { bucketMap, agg, detail };
-                        },
-
-                        hasTokenChartMetricData(detail, dimensionValue) {
-                          if (!isTokenChartPercentMetric(this.tokenChartMetric)) return null;
-                          for (const values of detail.values()) {
-                            const item = values.get(dimensionValue);
-                            if (item && tokenChartMetricDetailValue(item, this.tokenChartMetric) !== null) return true;
-                          }
-                          return false;
-                        },
-
-                        tokenChartBucketValue(agg, bucket, dimensionValue) {
-                          const value = agg.get(bucket)?.get(dimensionValue);
-                          if (value !== undefined) return value;
-                          return isTokenChartPercentMetric(this.tokenChartMetric) ? null : 0;
-                        },
-
-                        applyTokenChartMetricOptions(chart) {
-                          const metric = this.tokenChartMetric;
-                          const isPercentMetric = isTokenChartPercentMetric(metric);
-                          chart.options.scales.y.stacked = !isPercentMetric;
-                          chart.options.scales.y.title.text = tokenChartMetricLabel(metric);
-                          chart.options.scales.y.suggestedMax = isPercentMetric ? 100 : undefined;
-                          chart.options.scales.y.ticks.callback = (v) => formatTokenChartAxisValue(Number(v), metric);
-                          for (const ds of chart.data.datasets) {
-                            ds.fill = isPercentMetric ? false : 'stack';
-                            ds.spanGaps = isPercentMetric;
-                          }
-                        },
-
-                        updateSummary() {
-                          const filtered = this.tokenData.filter((r) => !this.hiddenKeys.has(r.keyId) && !this.hiddenModels.has(usageModelName(r.model)));
-                          let totalReqs = 0, totalIn = 0, totalOut = 0, totalCR = 0, totalCC = 0;
-                          for (const r of filtered) {
-                            totalReqs += r.requests;
-                            totalIn += r.inputTokens;
-                            totalOut += r.outputTokens;
-                            totalCR += r.cacheReadTokens ?? 0;
-                            totalCC += r.cacheCreationTokens ?? 0;
-                          }
-                          this.tokenSummary = {
-                            requests: totalReqs,
-                            total: totalIn + totalOut,
-                            input: totalIn,
-                            output: totalOut,
-                            cacheRead: totalCR,
-                            cacheCreation: totalCC,
-                            prefill: prefillInputTokens(totalIn, totalCR),
-                          };
-                        },
-
-                        refreshChartsData() {
-                          const bucketMap = this.buildBucketMap();
-                          const bucketKeysArr = [...bucketMap.keys()];
-
-                          if (_charts.key) {
-                            const filtered = this.tokenData.filter((r) => !this.hiddenModels.has(usageModelName(r.model)));
-                            const { agg, detail } = this.aggregateBuckets(filtered, 'keyId');
-                            _detailMaps.key = detail;
-                            this.applyTokenChartMetricOptions(_charts.key);
-                            for (let i = 0; i < _charts.key.data.datasets.length; i++) {
-                              const ds = _charts.key.data.datasets[i];
-                              ds.data = bucketKeysArr.map((k) => this.tokenChartBucketValue(agg, k, ds._keyId));
-                              const userHidden = this.hiddenKeys.has(ds._keyId);
-                              const hasData = this.hasTokenChartMetricData(detail, ds._keyId) ?? ds.data.some((v) => v !== 0);
-                              _charts.key.setDatasetVisibility(i, !userHidden && hasData);
-                            }
-                            _charts.key.update('none');
-                          }
-
-                          if (_charts.model) {
-                            const filtered = this.tokenData.filter((r) => !this.hiddenKeys.has(r.keyId));
-                            const { agg, detail } = this.aggregateBuckets(filtered, 'model');
-                            _detailMaps.model = detail;
-                            this.applyTokenChartMetricOptions(_charts.model);
-                            for (let i = 0; i < _charts.model.data.datasets.length; i++) {
-                              const ds = _charts.model.data.datasets[i];
-                              ds.data = bucketKeysArr.map((k) => this.tokenChartBucketValue(agg, k, ds._model));
-                              const userHidden = this.hiddenModels.has(ds._model);
-                              const hasData = this.hasTokenChartMetricData(detail, ds._model) ?? ds.data.some((v) => v !== 0);
-                              _charts.model.setDatasetVisibility(i, !userHidden && hasData);
-                            }
-                            _charts.model.update('none');
-                          }
-
-                          if (_charts.searchKey) {
-                            const filtered = this.searchUsageData.filter((r) => r.provider === this.searchUsageActiveProvider);
-                            const { agg, detail } = this.aggregateSearchUsageBuckets(filtered);
-                            _detailMaps.searchKey = detail;
-                            for (let i = 0; i < _charts.searchKey.data.datasets.length; i++) {
-                              const ds = _charts.searchKey.data.datasets[i];
-                              ds.data = bucketKeysArr.map((k) => agg.get(k)?.get(ds._keyId) ?? 0);
-                              const userHidden = this.hiddenKeys.has(ds._keyId);
-                              const hasData = ds.data.some((v) => v !== 0);
-                              _charts.searchKey.setDatasetVisibility(i, !userHidden && hasData);
-                            }
-                            _charts.searchKey.update('none');
-                          }
-
-                          this.updateSummary();
-                        },
-
-                        renderTokenCharts() {
-                          const canvasKey = document.getElementById('tokenChartByKey');
-                          const canvasModel = document.getElementById('tokenChartByModel');
-                          const canvasSearchKey = document.getElementById('searchUsageChartByKey');
-                          if (!canvasKey || !canvasModel || canvasKey.clientWidth === 0) return;
-
-                          const data = this.tokenData;
-                          const self = this;
-
-                          const keyNameMap = _keyNameMap;
-                          keyNameMap.clear();
-                          const keyMetaMap = new Map();
-                          const allKeyIds = new Set();
-                          const allKeyIdsForOrder = new Set();
-                          const allSearchKeyIds = new Set();
-                          const allSearchKeyIdsForOrder = new Set();
-                          const allModels = new Set();
-                          for (const k of this.tokenKeyMetadata) {
-                            keyNameMap.set(k.id, k.name);
-                            keyMetaMap.set(k.id, { name: k.name, createdAt: k.createdAt });
-                            allKeyIdsForOrder.add(k.id);
-                          }
-                          for (const k of this.searchUsageKeyMetadata) {
-                            keyNameMap.set(k.id, k.name);
-                            keyMetaMap.set(k.id, { name: k.name, createdAt: k.createdAt });
-                            allSearchKeyIdsForOrder.add(k.id);
-                          }
-                          for (const r of data) {
-                            keyNameMap.set(r.keyId, r.keyName);
-                            keyMetaMap.set(r.keyId, { name: r.keyName, createdAt: r.keyCreatedAt ?? keyMetaMap.get(r.keyId)?.createdAt });
-                            allKeyIds.add(r.keyId);
-                            allKeyIdsForOrder.add(r.keyId);
-                            allModels.add(usageModelName(r.model));
-                          }
-                          const activeSearchUsageData = this.searchUsageData.filter((r) => r.provider === this.searchUsageActiveProvider);
-                          for (const r of activeSearchUsageData) {
-                            keyNameMap.set(r.keyId, r.keyName);
-                            keyMetaMap.set(r.keyId, { name: r.keyName, createdAt: r.keyCreatedAt ?? keyMetaMap.get(r.keyId)?.createdAt });
-                            allSearchKeyIds.add(r.keyId);
-                            allSearchKeyIdsForOrder.add(r.keyId);
-                          }
-
-                          const bucketMap = this.buildBucketMap();
-                          const labels = [...bucketMap.values()];
-                          const bucketKeysArr = [...bucketMap.keys()];
-
-                          const { agg: keyAgg, detail: keyDetail } = this.aggregateBuckets(data, 'keyId');
-                          const { agg: modelAgg, detail: modelDetail } = this.aggregateBuckets(data, 'model');
-                          const { agg: searchKeyAgg, detail: searchKeyDetail } = this.aggregateSearchUsageBuckets(activeSearchUsageData);
-                          _detailMaps.key = keyDetail;
-                          _detailMaps.model = modelDetail;
-                          _detailMaps.searchKey = searchKeyDetail;
-
-                          const keyList = usageKeyChartEntries([...allKeyIds], keyMetaMap, [...allKeyIdsForOrder], this.tokenKeyColorOrder);
-                          const modelList = usageModelChartEntries([...allModels], this.allModels.map((m) => usageModelName(m.id)));
-                          const searchKeyList = usageKeyChartEntries([...allSearchKeyIds], keyMetaMap, [...allSearchKeyIdsForOrder], this.searchUsageKeyColorOrder);
-
-                          const keyDatasets = keyList.map(({ keyId, colorSlot }) => {
-                            const c = usageChartColor(colorSlot);
-                            return {
-                              label: self.redactKeys ? keyId.slice(0, 8) : (keyNameMap.get(keyId) || keyId.slice(0, 8)),
-                              data: bucketKeysArr.map((k) => self.tokenChartBucketValue(keyAgg, k, keyId)),
-                              borderColor: c,
-                              backgroundColor: c + '40',
-                              borderWidth: 2,
-                              pointRadius: 2,
-                              pointHoverRadius: 5,
-                              tension: 0.3,
-                              fill: 'stack',
-                              spanGaps: isTokenChartPercentMetric(self.tokenChartMetric),
-                              _keyId: keyId,
-                            };
+                        async fetchPerformanceOverview() {
+                          const range = this.performanceRangeParams();
+                          const params = new URLSearchParams({
+                            start: range.start,
+                            end: range.end,
+                            bucket: this.performanceBucketGranularity(),
+                            metric_scope: this.performanceMetricScope,
+                            timezone_offset_minutes: String(new Date().getTimezoneOffset()),
                           });
-
-                          const modelDatasets = modelList.map(({ model, colorSlot }) => {
-                            const c = usageChartColor(colorSlot);
-                            return {
-                              label: model,
-                              data: bucketKeysArr.map((k) => self.tokenChartBucketValue(modelAgg, k, model)),
-                              borderColor: c,
-                              backgroundColor: c + '40',
-                              borderWidth: 2,
-                              pointRadius: 2,
-                              pointHoverRadius: 5,
-                              tension: 0.3,
-                              fill: 'stack',
-                              spanGaps: isTokenChartPercentMetric(self.tokenChartMetric),
-                              _model: model,
-                            };
-                          });
-
-                          const searchKeyDatasets = searchKeyList.map(({ keyId, colorSlot }) => {
-                            const c = usageChartColor(colorSlot);
-                            return {
-                              label: self.redactKeys ? keyId.slice(0, 8) : (keyNameMap.get(keyId) || keyId.slice(0, 8)),
-                              data: bucketKeysArr.map((k) => searchKeyAgg.get(k)?.get(keyId) ?? 0),
-                              borderColor: c,
-                              backgroundColor: c + '40',
-                              borderWidth: 2,
-                              pointRadius: 2,
-                              pointHoverRadius: 5,
-                              tension: 0.3,
-                              fill: 'stack',
-                              spanGaps: false,
-                              _keyId: keyId,
-                            };
-                          });
-
-                          this.updateSummary();
-
-                          const makeOptions = (onClick, chartType) => {
-                            const isSearchChart = chartType === 'searchKey';
-                            return {
-                              responsive: true,
-                              maintainAspectRatio: false,
-                              animation: false,
-                              interaction: { mode: 'index', intersect: false },
-                              plugins: {
-                                legend: {
-                                  position: 'bottom',
-                                  labels: {
-                                    color: '#9e9e9e',
-                                    font: { size: 11, family: "'DM Sans', sans-serif" },
-                                    boxWidth: 12,
-                                    padding: 16,
-                                    usePointStyle: true,
-                                    pointStyle: 'circle',
-                                  },
-                                  onClick,
-                                },
-                                tooltip: {
-                                  backgroundColor: 'rgba(12,16,21,0.95)',
-                                  borderColor: 'rgba(255,255,255,0.1)',
-                                  borderWidth: 1,
-                                  titleColor: '#e0e0e0',
-                                  bodyColor: '#b0bec5',
-                                  padding: 12,
-                                  beforeBodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
-                                  bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
-                                  filter: (item) => item.parsed.y !== null && (isSearchChart ? item.parsed.y > 0 : (isTokenChartPercentMetric(self.tokenChartMetric) || item.parsed.y > 0)),
-                                  itemSort: (a, b) => b.parsed.y - a.parsed.y,
-                                  callbacks: {
-                                    beforeBody: (items) => {
-                                      if (isSearchChart) return [];
-                                      if (!items.length) return [];
-                                      return formatTooltipHeader(tooltipLabelWidth(items[0].chart));
-                                    },
-                                    label: (ctx) => {
-                                      const bucket = bucketKeysArr[ctx.dataIndex];
-                                      const dimKey = chartType === 'model' ? ctx.dataset._model : ctx.dataset._keyId;
-                                      const detailMap = _detailMaps[chartType];
-                                      const detail = detailMap?.get(bucket)?.get(dimKey);
-                                      if (isSearchChart) return ctx.dataset.label + ': ' + Math.round(detail ?? ctx.parsed.y).toLocaleString();
-                                      if (!detail) return ctx.dataset.label + ': ' + formatTokenChartAxisValue(ctx.parsed.y, self.tokenChartMetric);
-                                      return formatTooltipRow(String(ctx.dataset.label || ''), tooltipLabelWidth(ctx.chart), detail);
-                                    },
-                                  },
-                                },
-                              },
-                              scales: {
-                                x: {
-                                  stacked: true,
-                                  grid: { color: 'rgba(255,255,255,0.04)' },
-                                  ticks: { color: '#9e9e9e', font: { size: 10, family: "'DM Sans', sans-serif" }, maxRotation: 45 },
-                                  border: { color: 'rgba(255,255,255,0.06)' },
-                                },
-                                y: {
-                                  stacked: isSearchChart || !isTokenChartPercentMetric(self.tokenChartMetric),
-                                  beginAtZero: true,
-                                  suggestedMax: !isSearchChart && isTokenChartPercentMetric(self.tokenChartMetric) ? 100 : undefined,
-                                  title: {
-                                    display: true,
-                                    text: isSearchChart ? 'Search Requests' : tokenChartMetricLabel(self.tokenChartMetric),
-                                    color: '#9e9e9e',
-                                    font: { size: 10, family: "'DM Sans', sans-serif" },
-                                  },
-                                  grid: { color: 'rgba(255,255,255,0.04)' },
-                                  ticks: {
-                                    color: '#9e9e9e',
-                                    font: { size: 10, family: "'JetBrains Mono', monospace" },
-                                    callback: (v) => isSearchChart ? Math.round(Number(v)).toLocaleString() : formatTokenChartAxisValue(Number(v), self.tokenChartMetric),
-                                  },
-                                  border: { color: 'rgba(255,255,255,0.06)' },
-                                },
-                              },
-                            };
-                          };
-
-                          destroyCharts();
-
-                          _charts.key = new Chart(canvasKey, {
-                            type: 'line',
-                            data: { labels, datasets: keyDatasets },
-                            options: makeOptions((_e, legendItem, legend) => {
-                              const ds = legend.chart.data.datasets[legendItem.datasetIndex];
-                              if (self.hiddenKeys.has(ds._keyId)) self.hiddenKeys.delete(ds._keyId);
-                              else self.hiddenKeys.add(ds._keyId);
-                              self.refreshChartsData();
-                            }, 'key'),
-                          });
-
-                          _charts.model = new Chart(canvasModel, {
-                            type: 'line',
-                            data: { labels, datasets: modelDatasets },
-                            options: makeOptions((_e, legendItem, legend) => {
-                              const ds = legend.chart.data.datasets[legendItem.datasetIndex];
-                              if (self.hiddenModels.has(ds._model)) self.hiddenModels.delete(ds._model);
-                              else self.hiddenModels.add(ds._model);
-                              self.refreshChartsData();
-                            }, 'model'),
-                          });
-
-                          if (canvasSearchKey && this.searchUsageActiveProvider !== 'disabled') {
-                            _charts.searchKey = new Chart(canvasSearchKey, {
-                              type: 'line',
-                              data: { labels, datasets: searchKeyDatasets },
-                              options: makeOptions((_e, legendItem, legend) => {
-                                const ds = legend.chart.data.datasets[legendItem.datasetIndex];
-                                if (self.hiddenKeys.has(ds._keyId)) self.hiddenKeys.delete(ds._keyId);
-                                else self.hiddenKeys.add(ds._keyId);
-                                self.refreshChartsData();
-                              }, 'searchKey'),
-                            });
+                          const resp = await fetch('/api/performance/overview?' + params.toString(), { headers: this.authHeaders() });
+                          if (resp.status === 401) {
+                            this.logout();
+                            return null;
                           }
-
-                          this.chartsReady = true;
-                          this.refreshChartsData();
+                          if (!resp.ok) return null;
+                          const body = await resp.json();
+                          return body && typeof body === 'object' ? body : null;
                         },
 
-                        toggleRedactKeys() {
-                          this.redactKeys = !this.redactKeys;
-                          if (_charts.key) {
-                            for (const ds of _charts.key.data.datasets) {
-                              ds.label = this.redactKeys ? ds._keyId.slice(0, 8) : (_keyNameMap.get(ds._keyId) || ds._keyId.slice(0, 8));
-                            }
-                            _charts.key.update('none');
-                          }
-                          if (_charts.searchKey) {
-                            for (const ds of _charts.searchKey.data.datasets) {
-                              ds.label = this.redactKeys ? ds._keyId.slice(0, 8) : (_keyNameMap.get(ds._keyId) || ds._keyId.slice(0, 8));
-                            }
-                            _charts.searchKey.update('none');
-                          }
-                        },
-
-                        switchTokenRange(range) {
-                          this.tokenRange = range;
-                          destroyCharts();
-                          this.chartsReady = false;
-                          this.loadUsageTabData();
-                        },
-
-                        switchTokenChartMetric(metric) {
-                          if (!TOKEN_CHART_METRICS[metric] || this.tokenChartMetric === metric) return;
-                          this.tokenChartMetric = metric;
-                          this.refreshChartsData();
-                        },
-
-                        async exportData() {
-                          this.exportLoading = true;
+                        async loadPerformanceTabData() {
+                          this.performanceLoading = true;
                           try {
-                            const resp = await fetch('/api/export', { headers: this.authHeaders() });
-                            if (resp.status === 401) {
-                              this.logout();
-                              return;
-                            }
-                            if (!resp.ok) {
-                              alert('Export failed: ' + (await resp.json()).error);
-                              return;
-                            }
-                            const data = await resp.json();
-                            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = 'copilot-export-' + new Date().toISOString().slice(0, 10) + '.json';
-                            a.click();
-                            URL.revokeObjectURL(url);
+                            const overview = await this.fetchPerformanceOverview();
+                            this.performanceSeries = Array.isArray(overview?.series) ? overview.series : [];
+                            this.performanceSummaryRows = Array.isArray(overview?.summaryRows) ? overview.summaryRows : [];
+                            this.performanceModelRows = Array.isArray(overview?.modelRows) ? overview.modelRows : [];
+                            const runtimeRows = Array.isArray(overview?.runtimeRows) ? overview.runtimeRows : [];
+                            this.performanceRuntimeRows = runtimeRows.filter((row) => row.group !== 'unknown' || runtimeRows.length > 1);
+                            this.ensurePerformanceModelSelected();
+                            this.updatePerformanceSummary();
+                            if (this.tab !== 'performance') return;
+                            await this.$nextTick();
+                            this.renderPerformanceChart();
                           } catch (e) {
-                            console.error('exportData:', e);
-                            alert('Export failed');
+                            console.error('loadPerformanceTabData:', e);
                           } finally {
-                            this.exportLoading = false;
+                            this.performanceLoading = false;
                           }
                         },
 
-                        handleImportFile(event) {
-                          const file = event.target.files[0];
-                          if (!file) return;
-                          this.importFile = file;
-                          this.importPreview = { ready: false, exportedAt: null, apiKeys: 0, githubAccounts: 0, usage: 0, searchUsage: 0 };
-                          this.importData = null;
+                        updatePerformanceSummary() {
+                          const row = this.performanceSummaryRows[0];
+                          this.performanceSummary = row
+                            ? { requests: row.requests, errors: row.errors, avgMs: row.avgMs, p50Ms: row.p50Ms, p95Ms: row.p95Ms, p99Ms: row.p99Ms }
+                            : { requests: 0, errors: 0, avgMs: null, p50Ms: null, p95Ms: null, p99Ms: null };
+                          },
 
-                          const reader = new FileReader();
-                          reader.onload = (e) => {
-                            try {
-                              const json = JSON.parse(e.target.result);
-                              if (!json.data) {
-                                alert('Invalid export file: missing data field');
-                                this.importFile = null;
+                          renderPerformanceChart() {
+                            const canvas = document.getElementById('performanceChartByModel');
+                            if (!canvas || canvas.clientWidth === 0) return;
+                            if (_charts.performanceModel) {
+                              _charts.performanceModel.stop();
+                              _charts.performanceModel.destroy();
+                              _charts.performanceModel = null;
+                            }
+
+                            const sourceRows = this.performanceChartView === 'percentile'
+                              ? this.performanceSeries.filter((row) => row.group === this.performanceModel)
+                              : this.performanceSeries;
+                            const bucketMap = this.buildPerformanceBucketMap();
+                            const bucketKeysArr = [...bucketMap.keys()];
+                            const labels = [...bucketMap.values()];
+                            const percentileMetrics = ['p50Ms', 'p95Ms', 'p99Ms'];
+                            const datasets = this.performanceChartView === 'percentile'
+                              ? percentileMetrics.map((metric, index) => {
+                                const color = usageChartColor(index);
+                                const valueByBucket = new Map(sourceRows.map((row) => [row.bucket, row[metric]]));
+                                return {
+                                  label: this.performancePercentileLabel(metric),
+                                  data: bucketKeysArr.map((bucket) => valueByBucket.get(bucket) ?? null),
+                                  borderColor: color,
+                                  backgroundColor: color + '25',
+                                  borderWidth: 2,
+                                  pointRadius: 2,
+                                  pointHoverRadius: 5,
+                                  tension: 0.25,
+                                  fill: false,
+                                  spanGaps: true,
+                                };
+                              })
+                              : [...new Set(this.performanceSeries.map((row) => row.group))].sort().map((group, index) => {
+                                const color = usageChartColor(index);
+                                const valueByKey = new Map(this.performanceSeries.map((row) => [row.bucket + '\\0' + row.group, row[this.performancePercentile]]));
+                                return {
+                                  label: group,
+                                  data: bucketKeysArr.map((bucket) => valueByKey.get(bucket + '\\0' + group) ?? null),
+                                  borderColor: color,
+                                  backgroundColor: color + '25',
+                                  borderWidth: 2,
+                                  pointRadius: 2,
+                                  pointHoverRadius: 5,
+                                  tension: 0.25,
+                                  fill: false,
+                                  spanGaps: true,
+                                };
+                              });
+
+                              const self = this;
+                              _charts.performanceModel = new Chart(canvas, {
+                                type: 'line',
+                                data: { labels, datasets },
+                                options: {
+                                  responsive: true,
+                                  maintainAspectRatio: false,
+                                  animation: false,
+                                  interaction: { mode: 'index', intersect: false },
+                                  plugins: {
+                                    legend: {
+                                      position: 'bottom',
+                                      labels: { color: '#9e9e9e', font: { size: 11, family: "'DM Sans', sans-serif" }, boxWidth: 12, padding: 16, usePointStyle: true, pointStyle: 'circle' },
+                                    },
+                                    tooltip: {
+                                      backgroundColor: 'rgba(12,16,21,0.95)',
+                                      borderColor: 'rgba(255,255,255,0.1)',
+                                      borderWidth: 1,
+                                      titleColor: '#e0e0e0',
+                                      bodyColor: '#b0bec5',
+                                      padding: 12,
+                                      filter: (item) => item.parsed.y !== null,
+                                      callbacks: { label: (ctx) => ctx.dataset.label + ': ' + formatDurationMs(ctx.parsed.y) },
+                                    },
+                                  },
+                                  scales: {
+                                    x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#9e9e9e', font: { size: 10, family: "'DM Sans', sans-serif" }, maxRotation: 45 }, border: { color: 'rgba(255,255,255,0.06)' } },
+                                    y: { type: 'logarithmic', beginAtZero: false, title: { display: true, text: self.performanceChartView === 'percentile' ? self.performanceModel + ' latency' : self.performancePercentileLabel() + ' latency', color: '#9e9e9e', font: { size: 10, family: "'DM Sans', sans-serif" } }, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#9e9e9e', font: { size: 10, family: "'JetBrains Mono', monospace" }, callback: (v) => formatDurationMs(Number(v)) }, border: { color: 'rgba(255,255,255,0.06)' } },
+                                  },
+                                },
+                              });
+                              this.chartsReady = true;
+                            },
+
+                            ensurePerformanceModelSelected() {
+                              const models = this.performanceModelOptions();
+                              if (models.length === 0) {
+                                this.performanceModel = '';
                                 return;
                               }
-                              this.importData = json.data;
-                              this.importPreview = {
-                                ready: true,
-                                exportedAt: json.exportedAt || null,
-                                apiKeys: Array.isArray(json.data.apiKeys) ? json.data.apiKeys.length : 0,
-                                githubAccounts: Array.isArray(json.data.githubAccounts) ? json.data.githubAccounts.length : 0,
-                                usage: Array.isArray(json.data.usage) ? json.data.usage.length : 0,
-                                searchUsage: Array.isArray(json.data.searchUsage) ? json.data.searchUsage.length : 0,
-                              };
-                            } catch {
-                              alert('Invalid JSON file');
-                              this.importFile = null;
-                            }
-                          };
-                          reader.readAsText(file);
-                        },
-
-                        async doImport() {
-                          if (!this.importData) return;
-                          if (this.importMode === 'replace') {
-                            if (!confirm('This will DELETE ALL existing data and replace it with the imported file. Are you sure?')) return;
-                          }
-                          this.importLoading = true;
-                          try {
-                            const resp = await fetch('/api/import', {
-                              method: 'POST',
-                              headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ mode: this.importMode, data: this.importData }),
-                            });
-                            if (resp.status === 401) {
-                              this.logout();
-                              return;
-                            }
-                            const result = await resp.json();
-                            if (resp.ok) {
-                              alert('Import complete: ' + result.imported.apiKeys + ' keys, ' + result.imported.githubAccounts + ' accounts, ' + result.imported.usage + ' usage records, ' + result.imported.searchUsage + ' search usage records');
-                              this.importFile = null;
-                              this.importData = null;
-                              this.importPreview = { ready: false, exportedAt: null, apiKeys: 0, githubAccounts: 0, usage: 0, searchUsage: 0 };
-                            } else {
-                              alert('Import failed: ' + (result.error || 'Unknown error'));
-                            }
-                          } catch (e) {
-                            console.error('doImport:', e);
-                            alert('Import failed');
-                          } finally {
-                            this.importLoading = false;
-                          }
-                        },
-
-                        // ---- Models tab ----
-
-                        async loadAllModels() {
-                          await this.ensureModelsLoaded();
-                        },
-
-                        selectChatModel(id) {
-                          this.chatModelId = id;
-                          if (this._chatAbort) {
-                            this._chatAbort.abort();
-                            this._chatAbort = null;
-                            this.chatSending = false;
-                          }
-                        },
-
-                        clearChat() {
-                          if (this._chatAbort) {
-                            this._chatAbort.abort();
-                            this._chatAbort = null;
-                          }
-                          this.chatMessages = [];
-                          this.chatSending = false;
-                          this.chatStreamText = '';
-                        },
-
-                        buildChatApiMessages() {
-                          return this.chatMessages.map(m => {
-                            if (m.role === 'assistant') return { role: 'assistant', content: m.text };
-                            if (m.imageUrl) {
-                              return {
-                                role: 'user',
-                                content: [
-                                  { type: 'image_url', image_url: { url: m.imageUrl } },
-                                  { type: 'text', text: m.text },
-                                ],
-                              };
-                            }
-                            return { role: 'user', content: m.text };
-                          });
-                        },
-
-                        scrollChat() {
-                          this.$nextTick(() => {
-                            const el = this.$refs.chatScroll;
-                            if (el) el.scrollTop = el.scrollHeight;
-                          });
-                        },
-
-                        async sendChatMessage() {
-                          const text = this.chatInput.trim();
-                          const img = this.chatImageUrl.trim();
-                          if (!text && !img) return;
-                          if (!this.chatModelId) return;
-
-                          this.chatMessages.push({ role: 'user', text: text || '(image)', imageUrl: img || null });
-                          this.chatInput = '';
-                          this.chatImageUrl = '';
-                          this.chatShowImage = false;
-                          this.chatSending = true;
-                          this.chatStreamText = '';
-
-                          const controller = new AbortController();
-                          this._chatAbort = controller;
-
-                          try {
-                            const resp = await fetch('/v1/chat/completions', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json', 'x-api-key': this.authKey, 'x-models-playground': '1' },
-                              body: JSON.stringify({
-                                model: this.chatModelId,
-                                messages: this.buildChatApiMessages(),
-                                stream: true,
-                              }),
-                              signal: controller.signal,
-                            });
-
-                            if (!resp.ok) {
-                              const errText = await resp.text();
-                              this.chatMessages.push({ role: 'assistant', text: '[Error ' + resp.status + '] ' + errText });
-                              this.chatSending = false;
-                              this._chatAbort = null;
-                              this.scrollChat();
-                              return;
-                            }
-
-                            const reader = resp.body.getReader();
-                            const decoder = new TextDecoder();
-                            let buf = '';
-                            let assistantText = '';
-                            const idx = this.chatMessages.length;
-                            this.chatMessages.push({ role: 'assistant', text: '' });
-
-                            while (true) {
-                              const { done, value } = await reader.read();
-                              if (done) break;
-                              buf += decoder.decode(value, { stream: true });
-                              const lines = buf.split('\\n');
-                              buf = lines.pop();
-                              for (const line of lines) {
-                                if (!line.startsWith('data: ')) continue;
-                                const payload = line.slice(6);
-                                if (payload === '[DONE]') continue;
-                                try {
-                                  const chunk = JSON.parse(payload);
-                                  const delta = chunk.choices?.[0]?.delta?.content;
-                                  if (delta) {
-                                    assistantText += delta;
-                                    this.chatMessages[idx].text = assistantText;
-                                  }
-                                } catch {}
+                              if (!models.includes(this.performanceModel)) {
+                                this.performanceModel = models[0];
                               }
-                              this.scrollChat();
-                            }
+                            },
 
-                            if (!assistantText) {
-                              this.chatMessages[idx].text = '(empty response)';
-                            }
-                          } catch (e) {
-                            if (e.name !== 'AbortError') {
-                              this.chatMessages.push({ role: 'assistant', text: '[Error] ' + e.message });
-                            }
-                          } finally {
-                            this.chatSending = false;
-                            this._chatAbort = null;
-                            this.scrollChat();
+                            async loadTokenUsage() {
+                              await this.loadUsageTabData();
+                            },
+
+                            buildBucketMap() {
+                              const bucketMap = new Map();
+                              const now = new Date();
+                              if (this.tokenRange === 'today') {
+                                const cur = new Date(now);
+                                cur.setMinutes(0, 0, 0);
+                                for (let i = 23; i >= 0; i--) {
+                                  const d = new Date(cur.getTime() - i * 3600000);
+                                  const h = d.getHours();
+                                  bucketMap.set(this.localHourKey(d), String(h).padStart(2, '0') + ':00 \\u2013 ' + String((h + 1) % 24).padStart(2, '0') + ':00');
+                                }
+                              } else {
+                                const days = this.tokenRange === '7d' ? 7 : 30;
+                                for (let i = days - 1; i >= 0; i--) {
+                                  const d = new Date(now);
+                                  d.setDate(d.getDate() - i);
+                                  d.setHours(0, 0, 0, 0);
+                                  bucketMap.set(this.localDateKey(d), d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+                                }
+                              }
+                              return bucketMap;
+                            },
+
+                            aggregateBuckets(records, dimension, metric = this.tokenChartMetric) {
+                              const isDaily = this.tokenRange !== 'today';
+                              const bucketMap = this.buildBucketMap();
+                              const agg = new Map();
+                              const detail = new Map();
+                              for (const [key] of bucketMap) {
+                                agg.set(key, new Map());
+                                detail.set(key, new Map());
+                              }
+                              for (const r of records) {
+                                const utc = new Date(r.hour + ':00:00Z');
+                                const bucket = isDaily ? this.localDateKey(utc) : this.localHourKey(utc);
+                                if (!agg.has(bucket)) continue;
+                                const m = agg.get(bucket);
+                                const val = dimension === 'model' ? usageModelName(r.model) : r[dimension];
+                                if (!isTokenChartPercentMetric(metric)) {
+                                  m.set(val, (m.get(val) || 0) + tokenChartMetricRecordValue(r, metric));
+                                }
+                                const dm = detail.get(bucket);
+                                const prev = dm.get(val) || { requests: 0, input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+                                prev.requests += r.requests;
+                                prev.input += r.inputTokens;
+                                prev.output += r.outputTokens;
+                                prev.cacheRead += r.cacheReadTokens ?? 0;
+                                prev.cacheCreation += r.cacheCreationTokens ?? 0;
+                                dm.set(val, prev);
+                              }
+                              if (isTokenChartPercentMetric(metric)) {
+                                for (const [bucket, values] of detail) {
+                                  const m = agg.get(bucket);
+                                  for (const [val, item] of values) {
+                                    m.set(val, tokenChartMetricDetailValue(item, metric));
+                                  }
+                                }
+                              }
+                              return { bucketMap, agg, detail };
+                            },
+
+                            aggregateSearchUsageBuckets(records) {
+                              const isDaily = this.tokenRange !== 'today';
+                              const bucketMap = this.buildBucketMap();
+                              const agg = new Map();
+                              const detail = new Map();
+                              for (const [key] of bucketMap) {
+                                agg.set(key, new Map());
+                                detail.set(key, new Map());
+                              }
+                              for (const r of records) {
+                                const utc = new Date(r.hour + ':00:00Z');
+                                const bucket = isDaily ? this.localDateKey(utc) : this.localHourKey(utc);
+                                if (!agg.has(bucket)) continue;
+                                const m = agg.get(bucket);
+                                m.set(r.keyId, (m.get(r.keyId) || 0) + r.requests);
+                                const dm = detail.get(bucket);
+                                dm.set(r.keyId, (dm.get(r.keyId) || 0) + r.requests);
+                              }
+                              return { bucketMap, agg, detail };
+                            },
+
+                            hasTokenChartMetricData(detail, dimensionValue) {
+                              if (!isTokenChartPercentMetric(this.tokenChartMetric)) return null;
+                              for (const values of detail.values()) {
+                                const item = values.get(dimensionValue);
+                                if (item && tokenChartMetricDetailValue(item, this.tokenChartMetric) !== null) return true;
+                              }
+                              return false;
+                            },
+
+                            tokenChartBucketValue(agg, bucket, dimensionValue) {
+                              const value = agg.get(bucket)?.get(dimensionValue);
+                              if (value !== undefined) return value;
+                              return isTokenChartPercentMetric(this.tokenChartMetric) ? null : 0;
+                            },
+
+                            applyTokenChartMetricOptions(chart) {
+                              const metric = this.tokenChartMetric;
+                              const isPercentMetric = isTokenChartPercentMetric(metric);
+                              chart.options.scales.y.stacked = !isPercentMetric;
+                              chart.options.scales.y.title.text = tokenChartMetricLabel(metric);
+                              chart.options.scales.y.suggestedMax = isPercentMetric ? 100 : undefined;
+                              chart.options.scales.y.ticks.callback = (v) => formatTokenChartAxisValue(Number(v), metric);
+                              for (const ds of chart.data.datasets) {
+                                ds.fill = isPercentMetric ? false : 'stack';
+                                ds.spanGaps = isPercentMetric;
+                              }
+                            },
+
+                            updateSummary() {
+                              const filtered = this.tokenData.filter((r) => !this.hiddenKeys.has(r.keyId) && !this.hiddenModels.has(usageModelName(r.model)));
+                              let totalReqs = 0, totalIn = 0, totalOut = 0, totalCR = 0, totalCC = 0;
+                              for (const r of filtered) {
+                                totalReqs += r.requests;
+                                totalIn += r.inputTokens;
+                                totalOut += r.outputTokens;
+                                totalCR += r.cacheReadTokens ?? 0;
+                                totalCC += r.cacheCreationTokens ?? 0;
+                              }
+                              this.tokenSummary = {
+                                requests: totalReqs,
+                                total: totalIn + totalOut,
+                                input: totalIn,
+                                output: totalOut,
+                                cacheRead: totalCR,
+                                cacheCreation: totalCC,
+                                prefill: prefillInputTokens(totalIn, totalCR),
+                              };
+                            },
+
+                            refreshChartsData() {
+                              const bucketMap = this.buildBucketMap();
+                              const bucketKeysArr = [...bucketMap.keys()];
+
+                              if (_charts.key) {
+                                const filtered = this.tokenData.filter((r) => !this.hiddenModels.has(usageModelName(r.model)));
+                                const { agg, detail } = this.aggregateBuckets(filtered, 'keyId');
+                                _detailMaps.key = detail;
+                                this.applyTokenChartMetricOptions(_charts.key);
+                                for (let i = 0; i < _charts.key.data.datasets.length; i++) {
+                                  const ds = _charts.key.data.datasets[i];
+                                  ds.data = bucketKeysArr.map((k) => this.tokenChartBucketValue(agg, k, ds._keyId));
+                                  const userHidden = this.hiddenKeys.has(ds._keyId);
+                                  const hasData = this.hasTokenChartMetricData(detail, ds._keyId) ?? ds.data.some((v) => v !== 0);
+                                  _charts.key.setDatasetVisibility(i, !userHidden && hasData);
+                                }
+                                _charts.key.update('none');
+                              }
+
+                              if (_charts.model) {
+                                const filtered = this.tokenData.filter((r) => !this.hiddenKeys.has(r.keyId));
+                                const { agg, detail } = this.aggregateBuckets(filtered, 'model');
+                                _detailMaps.model = detail;
+                                this.applyTokenChartMetricOptions(_charts.model);
+                                for (let i = 0; i < _charts.model.data.datasets.length; i++) {
+                                  const ds = _charts.model.data.datasets[i];
+                                  ds.data = bucketKeysArr.map((k) => this.tokenChartBucketValue(agg, k, ds._model));
+                                  const userHidden = this.hiddenModels.has(ds._model);
+                                  const hasData = this.hasTokenChartMetricData(detail, ds._model) ?? ds.data.some((v) => v !== 0);
+                                  _charts.model.setDatasetVisibility(i, !userHidden && hasData);
+                                }
+                                _charts.model.update('none');
+                              }
+
+                              if (_charts.searchKey) {
+                                const filtered = this.searchUsageData.filter((r) => r.provider === this.searchUsageActiveProvider);
+                                const { agg, detail } = this.aggregateSearchUsageBuckets(filtered);
+                                _detailMaps.searchKey = detail;
+                                for (let i = 0; i < _charts.searchKey.data.datasets.length; i++) {
+                                  const ds = _charts.searchKey.data.datasets[i];
+                                  ds.data = bucketKeysArr.map((k) => agg.get(k)?.get(ds._keyId) ?? 0);
+                                  const userHidden = this.hiddenKeys.has(ds._keyId);
+                                  const hasData = ds.data.some((v) => v !== 0);
+                                  _charts.searchKey.setDatasetVisibility(i, !userHidden && hasData);
+                                }
+                                _charts.searchKey.update('none');
+                              }
+
+                              this.updateSummary();
+                            },
+
+                            renderTokenCharts() {
+                              const canvasKey = document.getElementById('tokenChartByKey');
+                              const canvasModel = document.getElementById('tokenChartByModel');
+                              const canvasSearchKey = document.getElementById('searchUsageChartByKey');
+                              if (!canvasKey || !canvasModel || canvasKey.clientWidth === 0) return;
+
+                              const data = this.tokenData;
+                              const self = this;
+
+                              const keyNameMap = _keyNameMap;
+                              keyNameMap.clear();
+                              const keyMetaMap = new Map();
+                              const allKeyIds = new Set();
+                              const allKeyIdsForOrder = new Set();
+                              const allSearchKeyIds = new Set();
+                              const allSearchKeyIdsForOrder = new Set();
+                              const allModels = new Set();
+                              for (const k of this.tokenKeyMetadata) {
+                                keyNameMap.set(k.id, k.name);
+                                keyMetaMap.set(k.id, { name: k.name, createdAt: k.createdAt });
+                                allKeyIdsForOrder.add(k.id);
+                              }
+                              for (const k of this.searchUsageKeyMetadata) {
+                                keyNameMap.set(k.id, k.name);
+                                keyMetaMap.set(k.id, { name: k.name, createdAt: k.createdAt });
+                                allSearchKeyIdsForOrder.add(k.id);
+                              }
+                              for (const r of data) {
+                                keyNameMap.set(r.keyId, r.keyName);
+                                keyMetaMap.set(r.keyId, { name: r.keyName, createdAt: r.keyCreatedAt ?? keyMetaMap.get(r.keyId)?.createdAt });
+                                allKeyIds.add(r.keyId);
+                                allKeyIdsForOrder.add(r.keyId);
+                                allModels.add(usageModelName(r.model));
+                              }
+                              const activeSearchUsageData = this.searchUsageData.filter((r) => r.provider === this.searchUsageActiveProvider);
+                              for (const r of activeSearchUsageData) {
+                                keyNameMap.set(r.keyId, r.keyName);
+                                keyMetaMap.set(r.keyId, { name: r.keyName, createdAt: r.keyCreatedAt ?? keyMetaMap.get(r.keyId)?.createdAt });
+                                allSearchKeyIds.add(r.keyId);
+                                allSearchKeyIdsForOrder.add(r.keyId);
+                              }
+
+                              const bucketMap = this.buildBucketMap();
+                              const labels = [...bucketMap.values()];
+                              const bucketKeysArr = [...bucketMap.keys()];
+
+                              const { agg: keyAgg, detail: keyDetail } = this.aggregateBuckets(data, 'keyId');
+                              const { agg: modelAgg, detail: modelDetail } = this.aggregateBuckets(data, 'model');
+                              const { agg: searchKeyAgg, detail: searchKeyDetail } = this.aggregateSearchUsageBuckets(activeSearchUsageData);
+                              _detailMaps.key = keyDetail;
+                              _detailMaps.model = modelDetail;
+                              _detailMaps.searchKey = searchKeyDetail;
+
+                              const keyList = usageKeyChartEntries([...allKeyIds], keyMetaMap, [...allKeyIdsForOrder], this.tokenKeyColorOrder);
+                              const modelList = usageModelChartEntries([...allModels], this.allModels.map((m) => usageModelName(m.id)));
+                              const searchKeyList = usageKeyChartEntries([...allSearchKeyIds], keyMetaMap, [...allSearchKeyIdsForOrder], this.searchUsageKeyColorOrder);
+
+                              const keyDatasets = keyList.map(({ keyId, colorSlot }) => {
+                                const c = usageChartColor(colorSlot);
+                                return {
+                                  label: self.redactKeys ? keyId.slice(0, 8) : (keyNameMap.get(keyId) || keyId.slice(0, 8)),
+                                  data: bucketKeysArr.map((k) => self.tokenChartBucketValue(keyAgg, k, keyId)),
+                                  borderColor: c,
+                                  backgroundColor: c + '40',
+                                  borderWidth: 2,
+                                  pointRadius: 2,
+                                  pointHoverRadius: 5,
+                                  tension: 0.3,
+                                  fill: 'stack',
+                                  spanGaps: isTokenChartPercentMetric(self.tokenChartMetric),
+                                  _keyId: keyId,
+                                };
+                              });
+
+                              const modelDatasets = modelList.map(({ model, colorSlot }) => {
+                                const c = usageChartColor(colorSlot);
+                                return {
+                                  label: model,
+                                  data: bucketKeysArr.map((k) => self.tokenChartBucketValue(modelAgg, k, model)),
+                                  borderColor: c,
+                                  backgroundColor: c + '40',
+                                  borderWidth: 2,
+                                  pointRadius: 2,
+                                  pointHoverRadius: 5,
+                                  tension: 0.3,
+                                  fill: 'stack',
+                                  spanGaps: isTokenChartPercentMetric(self.tokenChartMetric),
+                                  _model: model,
+                                };
+                              });
+
+                              const searchKeyDatasets = searchKeyList.map(({ keyId, colorSlot }) => {
+                                const c = usageChartColor(colorSlot);
+                                return {
+                                  label: self.redactKeys ? keyId.slice(0, 8) : (keyNameMap.get(keyId) || keyId.slice(0, 8)),
+                                  data: bucketKeysArr.map((k) => searchKeyAgg.get(k)?.get(keyId) ?? 0),
+                                  borderColor: c,
+                                  backgroundColor: c + '40',
+                                  borderWidth: 2,
+                                  pointRadius: 2,
+                                  pointHoverRadius: 5,
+                                  tension: 0.3,
+                                  fill: 'stack',
+                                  spanGaps: false,
+                                  _keyId: keyId,
+                                };
+                              });
+
+                              this.updateSummary();
+
+                              const makeOptions = (onClick, chartType) => {
+                                const isSearchChart = chartType === 'searchKey';
+                                return {
+                                  responsive: true,
+                                  maintainAspectRatio: false,
+                                  animation: false,
+                                  interaction: { mode: 'index', intersect: false },
+                                  plugins: {
+                                    legend: {
+                                      position: 'bottom',
+                                      labels: {
+                                        color: '#9e9e9e',
+                                        font: { size: 11, family: "'DM Sans', sans-serif" },
+                                        boxWidth: 12,
+                                        padding: 16,
+                                        usePointStyle: true,
+                                        pointStyle: 'circle',
+                                      },
+                                      onClick,
+                                    },
+                                    tooltip: {
+                                      backgroundColor: 'rgba(12,16,21,0.95)',
+                                      borderColor: 'rgba(255,255,255,0.1)',
+                                      borderWidth: 1,
+                                      titleColor: '#e0e0e0',
+                                      bodyColor: '#b0bec5',
+                                      padding: 12,
+                                      beforeBodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
+                                      bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
+                                      filter: (item) => item.parsed.y !== null && (isSearchChart ? item.parsed.y > 0 : (isTokenChartPercentMetric(self.tokenChartMetric) || item.parsed.y > 0)),
+                                      itemSort: (a, b) => b.parsed.y - a.parsed.y,
+                                      callbacks: {
+                                        beforeBody: (items) => {
+                                          if (isSearchChart) return [];
+                                          if (!items.length) return [];
+                                          return formatTooltipHeader(tooltipLabelWidth(items[0].chart));
+                                        },
+                                        label: (ctx) => {
+                                          const bucket = bucketKeysArr[ctx.dataIndex];
+                                          const dimKey = chartType === 'model' ? ctx.dataset._model : ctx.dataset._keyId;
+                                          const detailMap = _detailMaps[chartType];
+                                          const detail = detailMap?.get(bucket)?.get(dimKey);
+                                          if (isSearchChart) return ctx.dataset.label + ': ' + Math.round(detail ?? ctx.parsed.y).toLocaleString();
+                                          if (!detail) return ctx.dataset.label + ': ' + formatTokenChartAxisValue(ctx.parsed.y, self.tokenChartMetric);
+                                          return formatTooltipRow(String(ctx.dataset.label || ''), tooltipLabelWidth(ctx.chart), detail);
+                                        },
+                                      },
+                                    },
+                                  },
+                                  scales: {
+                                    x: {
+                                      stacked: true,
+                                      grid: { color: 'rgba(255,255,255,0.04)' },
+                                      ticks: { color: '#9e9e9e', font: { size: 10, family: "'DM Sans', sans-serif" }, maxRotation: 45 },
+                                      border: { color: 'rgba(255,255,255,0.06)' },
+                                    },
+                                    y: {
+                                      stacked: isSearchChart || !isTokenChartPercentMetric(self.tokenChartMetric),
+                                      beginAtZero: true,
+                                      suggestedMax: !isSearchChart && isTokenChartPercentMetric(self.tokenChartMetric) ? 100 : undefined,
+                                      title: {
+                                        display: true,
+                                        text: isSearchChart ? 'Search Requests' : tokenChartMetricLabel(self.tokenChartMetric),
+                                        color: '#9e9e9e',
+                                        font: { size: 10, family: "'DM Sans', sans-serif" },
+                                      },
+                                      grid: { color: 'rgba(255,255,255,0.04)' },
+                                      ticks: {
+                                        color: '#9e9e9e',
+                                        font: { size: 10, family: "'JetBrains Mono', monospace" },
+                                        callback: (v) => isSearchChart ? Math.round(Number(v)).toLocaleString() : formatTokenChartAxisValue(Number(v), self.tokenChartMetric),
+                                      },
+                                      border: { color: 'rgba(255,255,255,0.06)' },
+                                    },
+                                  },
+                                };
+                              };
+
+                              destroyCharts();
+
+                              _charts.key = new Chart(canvasKey, {
+                                type: 'line',
+                                data: { labels, datasets: keyDatasets },
+                                options: makeOptions((_e, legendItem, legend) => {
+                                  const ds = legend.chart.data.datasets[legendItem.datasetIndex];
+                                  if (self.hiddenKeys.has(ds._keyId)) self.hiddenKeys.delete(ds._keyId);
+                                  else self.hiddenKeys.add(ds._keyId);
+                                  self.refreshChartsData();
+                                }, 'key'),
+                              });
+
+                              _charts.model = new Chart(canvasModel, {
+                                type: 'line',
+                                data: { labels, datasets: modelDatasets },
+                                options: makeOptions((_e, legendItem, legend) => {
+                                  const ds = legend.chart.data.datasets[legendItem.datasetIndex];
+                                  if (self.hiddenModels.has(ds._model)) self.hiddenModels.delete(ds._model);
+                                  else self.hiddenModels.add(ds._model);
+                                  self.refreshChartsData();
+                                }, 'model'),
+                              });
+
+                              if (canvasSearchKey && this.searchUsageActiveProvider !== 'disabled') {
+                                _charts.searchKey = new Chart(canvasSearchKey, {
+                                  type: 'line',
+                                  data: { labels, datasets: searchKeyDatasets },
+                                  options: makeOptions((_e, legendItem, legend) => {
+                                    const ds = legend.chart.data.datasets[legendItem.datasetIndex];
+                                    if (self.hiddenKeys.has(ds._keyId)) self.hiddenKeys.delete(ds._keyId);
+                                    else self.hiddenKeys.add(ds._keyId);
+                                    self.refreshChartsData();
+                                  }, 'searchKey'),
+                                });
+                              }
+
+                              this.chartsReady = true;
+                              this.refreshChartsData();
+                            },
+
+                            toggleRedactKeys() {
+                              this.redactKeys = !this.redactKeys;
+                              if (_charts.key) {
+                                for (const ds of _charts.key.data.datasets) {
+                                  ds.label = this.redactKeys ? ds._keyId.slice(0, 8) : (_keyNameMap.get(ds._keyId) || ds._keyId.slice(0, 8));
+                                }
+                                _charts.key.update('none');
+                              }
+                              if (_charts.searchKey) {
+                                for (const ds of _charts.searchKey.data.datasets) {
+                                  ds.label = this.redactKeys ? ds._keyId.slice(0, 8) : (_keyNameMap.get(ds._keyId) || ds._keyId.slice(0, 8));
+                                }
+                                _charts.searchKey.update('none');
+                              }
+                            },
+
+                            switchTokenRange(range) {
+                              this.tokenRange = range;
+                              destroyCharts();
+                              this.chartsReady = false;
+                              this.loadUsageTabData();
+                            },
+
+                            switchTokenChartMetric(metric) {
+                              if (!TOKEN_CHART_METRICS[metric] || this.tokenChartMetric === metric) return;
+                              this.tokenChartMetric = metric;
+                              this.refreshChartsData();
+                            },
+
+                            switchPerformanceRange(range) {
+                              if (this.performanceRange === range) return;
+                              this.performanceRange = range;
+                              destroyCharts();
+                              this.chartsReady = false;
+                              this.loadPerformanceTabData();
+                            },
+
+                            switchPerformanceMetricScope(scope) {
+                              if (this.performanceMetricScope === scope) return;
+                              this.performanceMetricScope = scope;
+                              destroyCharts();
+                              this.chartsReady = false;
+                              this.loadPerformanceTabData();
+                            },
+
+                            switchPerformanceChartView(view) {
+                              if (this.performanceChartView === view) return;
+                              this.performanceChartView = view;
+                              if (view === 'percentile') this.ensurePerformanceModelSelected();
+                              this.renderPerformanceChart();
+                            },
+
+                            switchPerformancePercentile(percentile) {
+                              if (this.performancePercentile === percentile) return;
+                              this.performancePercentile = percentile;
+                              this.renderPerformanceChart();
+                            },
+
+                            async exportData() {
+                              this.exportLoading = true;
+                              try {
+                                const resp = await fetch('/api/export' + (this.exportIncludePerformance ? '?include_performance=1' : ''), { headers: this.authHeaders() });
+                                if (resp.status === 401) {
+                                  this.logout();
+                                  return;
+                                }
+                                if (!resp.ok) {
+                                  alert('Export failed: ' + (await resp.json()).error);
+                                  return;
+                                }
+                                const data = await resp.json();
+                                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = 'copilot-export-' + new Date().toISOString().slice(0, 10) + '.json';
+                                a.click();
+                                URL.revokeObjectURL(url);
+                              } catch (e) {
+                                console.error('exportData:', e);
+                                alert('Export failed');
+                              } finally {
+                                this.exportLoading = false;
+                              }
+                            },
+
+                            handleImportFile(event) {
+                              const file = event.target.files[0];
+                              if (!file) return;
+                              this.importFile = file;
+                              this.importPreview = { ready: false, exportedAt: null, apiKeys: 0, githubAccounts: 0, usage: 0, searchUsage: 0, performance: 0 };
+                              this.importData = null;
+
+                              const reader = new FileReader();
+                              reader.onload = (e) => {
+                                try {
+                                  const json = JSON.parse(e.target.result);
+                                  if (!json.data) {
+                                    alert('Invalid export file: missing data field');
+                                    this.importFile = null;
+                                    return;
+                                  }
+                                  this.importData = json.data;
+                                  this.importPreview = {
+                                    ready: true,
+                                    exportedAt: json.exportedAt || null,
+                                    apiKeys: Array.isArray(json.data.apiKeys) ? json.data.apiKeys.length : 0,
+                                    githubAccounts: Array.isArray(json.data.githubAccounts) ? json.data.githubAccounts.length : 0,
+                                    usage: Array.isArray(json.data.usage) ? json.data.usage.length : 0,
+                                    searchUsage: Array.isArray(json.data.searchUsage) ? json.data.searchUsage.length : 0,
+                                    performance: Array.isArray(json.data.performance) ? json.data.performance.length : 0,
+                                  };
+                                } catch {
+                                  alert('Invalid JSON file');
+                                  this.importFile = null;
+                                }
+                              };
+                              reader.readAsText(file);
+                            },
+
+                            async doImport() {
+                              if (!this.importData) return;
+                              if (this.importMode === 'replace') {
+                                if (!confirm('This will DELETE ALL existing data and replace it with the imported file. Are you sure?')) return;
+                              }
+                              this.importLoading = true;
+                              try {
+                                const resp = await fetch('/api/import', {
+                                  method: 'POST',
+                                  headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ mode: this.importMode, data: this.importData }),
+                                });
+                                if (resp.status === 401) {
+                                  this.logout();
+                                  return;
+                                }
+                                const result = await resp.json();
+                                if (resp.ok) {
+                                  alert('Import complete: ' + result.imported.apiKeys + ' keys, ' + result.imported.githubAccounts + ' accounts, ' + result.imported.usage + ' usage records, ' + result.imported.searchUsage + ' search usage records, ' + result.imported.performance + ' performance records');
+                                  this.importFile = null;
+                                  this.importData = null;
+                                  this.importPreview = { ready: false, exportedAt: null, apiKeys: 0, githubAccounts: 0, usage: 0, searchUsage: 0, performance: 0 };
+                                } else {
+                                  alert('Import failed: ' + (result.error || 'Unknown error'));
+                                }
+                              } catch (e) {
+                                console.error('doImport:', e);
+                                alert('Import failed');
+                              } finally {
+                                this.importLoading = false;
+                              }
+                            },
+
+                            // ---- Models tab ----
+
+                            async loadAllModels() {
+                              await this.ensureModelsLoaded();
+                            },
+
+                            selectChatModel(id) {
+                              this.chatModelId = id;
+                              if (this._chatAbort) {
+                                this._chatAbort.abort();
+                                this._chatAbort = null;
+                                this.chatSending = false;
+                              }
+                            },
+
+                            clearChat() {
+                              if (this._chatAbort) {
+                                this._chatAbort.abort();
+                                this._chatAbort = null;
+                              }
+                              this.chatMessages = [];
+                              this.chatSending = false;
+                              this.chatStreamText = '';
+                            },
+
+                            buildChatApiMessages() {
+                              return this.chatMessages.map(m => {
+                                if (m.role === 'assistant') return { role: 'assistant', content: m.text };
+                                if (m.imageUrl) {
+                                  return {
+                                    role: 'user',
+                                    content: [
+                                      { type: 'image_url', image_url: { url: m.imageUrl } },
+                                      { type: 'text', text: m.text },
+                                    ],
+                                  };
+                                }
+                                return { role: 'user', content: m.text };
+                              });
+                            },
+
+                            scrollChat() {
+                              this.$nextTick(() => {
+                                const el = this.$refs.chatScroll;
+                                if (el) el.scrollTop = el.scrollHeight;
+                              });
+                            },
+
+                            async sendChatMessage() {
+                              const text = this.chatInput.trim();
+                              const img = this.chatImageUrl.trim();
+                              if (!text && !img) return;
+                              if (!this.chatModelId) return;
+
+                              this.chatMessages.push({ role: 'user', text: text || '(image)', imageUrl: img || null });
+                              this.chatInput = '';
+                              this.chatImageUrl = '';
+                              this.chatShowImage = false;
+                              this.chatSending = true;
+                              this.chatStreamText = '';
+
+                              const controller = new AbortController();
+                              this._chatAbort = controller;
+
+                              try {
+                                const resp = await fetch('/v1/chat/completions', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json', 'x-api-key': this.authKey, 'x-models-playground': '1' },
+                                  body: JSON.stringify({
+                                    model: this.chatModelId,
+                                    messages: this.buildChatApiMessages(),
+                                    stream: true,
+                                  }),
+                                  signal: controller.signal,
+                                });
+
+                                if (!resp.ok) {
+                                  const errText = await resp.text();
+                                  this.chatMessages.push({ role: 'assistant', text: '[Error ' + resp.status + '] ' + errText });
+                                  this.chatSending = false;
+                                  this._chatAbort = null;
+                                  this.scrollChat();
+                                  return;
+                                }
+
+                                const reader = resp.body.getReader();
+                                const decoder = new TextDecoder();
+                                let buf = '';
+                                let assistantText = '';
+                                const idx = this.chatMessages.length;
+                                this.chatMessages.push({ role: 'assistant', text: '' });
+
+                                while (true) {
+                                  const { done, value } = await reader.read();
+                                  if (done) break;
+                                  buf += decoder.decode(value, { stream: true });
+                                  const lines = buf.split('\\n');
+                                  buf = lines.pop();
+                                  for (const line of lines) {
+                                    if (!line.startsWith('data: ')) continue;
+                                    const payload = line.slice(6);
+                                    if (payload === '[DONE]') continue;
+                                    try {
+                                      const chunk = JSON.parse(payload);
+                                      const delta = chunk.choices?.[0]?.delta?.content;
+                                      if (delta) {
+                                        assistantText += delta;
+                                        this.chatMessages[idx].text = assistantText;
+                                      }
+                                    } catch {}
+                                  }
+                                  this.scrollChat();
+                                }
+
+                                if (!assistantText) {
+                                  this.chatMessages[idx].text = '(empty response)';
+                                }
+                              } catch (e) {
+                                if (e.name !== 'AbortError') {
+                                  this.chatMessages.push({ role: 'assistant', text: '[Error] ' + e.message });
+                                }
+                              } finally {
+                                this.chatSending = false;
+                                this._chatAbort = null;
+                                this.scrollChat();
+                              }
+                            },
+
+                            logout() {
+                              localStorage.removeItem('authKey');
+                              localStorage.removeItem('isAdmin');
+                              localStorage.removeItem('login_key_id');
+                              localStorage.removeItem('login_key_name');
+                              localStorage.removeItem('login_key_hint');
+                              window.location.href = '/';
+                            },
+
+                            };
                           }
-                        },
-
-                        logout() {
-                          localStorage.removeItem('authKey');
-                          localStorage.removeItem('isAdmin');
-                          localStorage.removeItem('login_key_id');
-                          localStorage.removeItem('login_key_name');
-                          localStorage.removeItem('login_key_hint');
-                          window.location.href = '/';
-                        },
-
-                        };
-                      }
-                    </script>
-                  `;
-                }
+                        </script>
+                      `;
+                    }

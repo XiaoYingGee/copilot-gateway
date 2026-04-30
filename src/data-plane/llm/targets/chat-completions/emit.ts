@@ -18,6 +18,7 @@ import { isSSEResponse } from "../../shared/stream/is-sse-response.ts";
 import { jsonFrame } from "../../shared/stream/types.ts";
 import { runTargetInterceptors } from "../run-interceptors.ts";
 import type { EmitInput, EmitResult, RawEmitResult } from "../emit-types.ts";
+import { withUpstreamSuccessTelemetry } from "../telemetry.ts";
 import { chatCompletionsStreamFramesToEvents } from "./events/from-stream.ts";
 import { chatCompletionsTargetInterceptors } from "./interceptors/index.ts";
 
@@ -42,6 +43,7 @@ export const emitToChatCompletions = async (
       input,
       chatCompletionsTargetInterceptors,
       async () => {
+        const upstreamStartedAt = performance.now();
         const response = await copilotFetch(
           "/chat/completions",
           {
@@ -66,12 +68,22 @@ export const emitToChatCompletions = async (
         }
 
         if (isSSEResponse(response)) {
-          return eventResult(parseSSEStream(response.body));
+          return eventResult(withUpstreamSuccessTelemetry(
+            parseSSEStream(response.body),
+            input,
+            "chat-completions",
+            upstreamStartedAt,
+          ));
         }
 
-        return eventResult((async function* () {
-          yield jsonFrame(await response.json() as ChatCompletionResponse);
-        })());
+        return eventResult(withUpstreamSuccessTelemetry(
+          (async function* () {
+            yield jsonFrame(await response.json() as ChatCompletionResponse);
+          })(),
+          input,
+          "chat-completions",
+          upstreamStartedAt,
+        ));
       },
     );
 

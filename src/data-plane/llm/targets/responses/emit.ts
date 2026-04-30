@@ -17,6 +17,7 @@ import { isSSEResponse } from "../../shared/stream/is-sse-response.ts";
 import { jsonFrame } from "../../shared/stream/types.ts";
 import { runTargetInterceptors } from "../run-interceptors.ts";
 import type { EmitInput, EmitResult, RawEmitResult } from "../emit-types.ts";
+import { withUpstreamSuccessTelemetry } from "../telemetry.ts";
 import { type SequencedResponseStreamEvent } from "./events/from-result.ts";
 import { responsesStreamFramesToEvents } from "./events/from-stream.ts";
 import { responsesTargetInterceptors } from "./interceptors/index.ts";
@@ -41,6 +42,7 @@ export const emitToResponses = async (
       input,
       responsesTargetInterceptors,
       async () => {
+        const upstreamStartedAt = performance.now();
         const response = await copilotFetch(
           "/responses",
           {
@@ -65,12 +67,22 @@ export const emitToResponses = async (
         }
 
         if (isSSEResponse(response)) {
-          return eventResult(parseSSEStream(response.body));
+          return eventResult(withUpstreamSuccessTelemetry(
+            parseSSEStream(response.body),
+            input,
+            "responses",
+            upstreamStartedAt,
+          ));
         }
 
-        return eventResult((async function* () {
-          yield jsonFrame(await response.json() as ResponsesResult);
-        })());
+        return eventResult(withUpstreamSuccessTelemetry(
+          (async function* () {
+            yield jsonFrame(await response.json() as ResponsesResult);
+          })(),
+          input,
+          "responses",
+          upstreamStartedAt,
+        ));
       },
     );
 

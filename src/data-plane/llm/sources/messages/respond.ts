@@ -13,8 +13,15 @@ import { runSourceInterceptors } from "../run-interceptors.ts";
 import { proxySSE } from "../../shared/stream/proxy-sse.ts";
 import type { StreamExecuteResult } from "../../shared/errors/result.ts";
 import { upstreamErrorToResponse } from "../../shared/errors/upstream-error.ts";
-import { sseFrame } from "../../shared/stream/types.ts";
-import { withUsageResponseMetadata } from "../../../../middleware/usage-response-metadata.ts";
+import { type ProtocolFrame, sseFrame } from "../../shared/stream/types.ts";
+import {
+  type PerformanceFailureCapture,
+  withUsageResponseMetadata,
+} from "../../../../middleware/usage-response-metadata.ts";
+import {
+  markPerformanceFailure,
+  trackPerformanceOutcome,
+} from "../performance.ts";
 
 const internalMessagesErrorPayload = (error: InternalDebugError) => ({
   type: "error",
@@ -42,6 +49,13 @@ const internalMessagesStreamErrorFrame = (error: unknown) =>
     "error",
   );
 
+const isMessagesFailureEvent = (event: MessagesStreamEventData): boolean =>
+  event.type === "error";
+
+const isMessagesCompletionFrame = (
+  frame: ProtocolFrame<MessagesStreamEventData>,
+): boolean => frame.type === "event" && frame.event.type === "message_stop";
+
 export const respondMessages = async (
   c: Context,
   initialResult: StreamExecuteResult<MessagesStreamEventData>,
@@ -53,20 +67,74 @@ export const respondMessages = async (
   );
 
   if (result.type === "upstream-error") {
-    return upstreamErrorToResponse(result);
+    return withUsageResponseMetadata(c, upstreamErrorToResponse(result), {
+      performance: result.performance,
+    });
   }
 
   if (result.type === "internal-error") {
-    return internalMessagesErrorResponse(result.status, result.error);
+    return withUsageResponseMetadata(
+      c,
+      internalMessagesErrorResponse(result.status, result.error),
+      { performance: result.performance },
+    );
   }
 
-  const response = wantsStream
-    ? proxySSE(c, messagesProtocolEventsToSSEFrames(result.events), {
-      onError: internalMessagesStreamErrorFrame,
-    })
-    : Response.json(
-      await collectMessagesProtocolEventsToResponse(result.events),
-    );
+  if (!wantsStream) {
+    const performanceFailureCapture: PerformanceFailureCapture = {};
+    try {
+      const response = await collectMessagesProtocolEventsToResponse(
+        result.events,
+      );
 
-  return withUsageResponseMetadata(response, { usageModel: result.usageModel });
+      return withUsageResponseMetadata(
+        c,
+        Response.json(response),
+        {
+          usageModel: result.usageModel,
+          performance: result.performance,
+          performanceFailureCapture,
+        },
+      );
+    } catch (error) {
+      markPerformanceFailure(performanceFailureCapture);
+
+      return withUsageResponseMetadata(
+        c,
+        internalMessagesErrorResponse(
+          502,
+          toInternalDebugError(error, "messages"),
+        ),
+        {
+          performance: result.performance,
+          performanceFailureCapture,
+        },
+      );
+    }
+  }
+
+  const performanceFailureCapture: PerformanceFailureCapture = {};
+  const response = proxySSE(
+    c,
+    messagesProtocolEventsToSSEFrames(
+      trackPerformanceOutcome(
+        result.events,
+        performanceFailureCapture,
+        isMessagesFailureEvent,
+        isMessagesCompletionFrame,
+      ),
+    ),
+    {
+      onError: (error) => {
+        markPerformanceFailure(performanceFailureCapture);
+        return internalMessagesStreamErrorFrame(error);
+      },
+    },
+  );
+
+  return withUsageResponseMetadata(c, response, {
+    usageModel: result.usageModel,
+    performance: result.performance,
+    performanceFailureCapture,
+  });
 };

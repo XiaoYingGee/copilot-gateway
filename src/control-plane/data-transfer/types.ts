@@ -2,6 +2,7 @@ import type { SearchConfig } from "../../data-plane/tools/web-search/types.ts";
 import type {
   ApiKey,
   GitHubAccount,
+  PerformanceTelemetryRecord,
   SearchUsageRecord,
   UsageRecord,
 } from "../../repo/types.ts";
@@ -14,6 +15,8 @@ export interface ExportPayload {
     githubAccounts: GitHubAccount[];
     usage: UsageRecord[];
     searchUsage: SearchUsageRecord[];
+    performance?: PerformanceTelemetryRecord[];
+    performanceIncluded?: boolean;
     searchConfig: SearchConfig;
   };
 }

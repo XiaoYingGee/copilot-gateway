@@ -1,4 +1,5 @@
 import type { WebSearchProviderName } from "../lib/web-search-types.ts";
+import type { HistogramBucket } from "../lib/performance-histogram.ts";
 
 export interface ApiKey {
   id: string;
@@ -35,6 +36,33 @@ export interface SearchUsageRecord {
   keyId: string;
   hour: string;
   requests: number;
+}
+
+export type PerformanceMetricScope = "request_total" | "upstream_success";
+export type PerformanceApiName = "messages" | "responses" | "chat-completions";
+
+export interface PerformanceDimensions {
+  hour: string;
+  metricScope: PerformanceMetricScope;
+  keyId: string;
+  model: string;
+  sourceApi: PerformanceApiName;
+  targetApi: PerformanceApiName;
+  stream: boolean;
+  runtimeLocation: string;
+}
+
+export interface PerformanceLatencySample extends PerformanceDimensions {
+  durationMs: number;
+}
+
+export interface PerformanceErrorSample extends PerformanceDimensions {}
+
+export interface PerformanceTelemetryRecord extends PerformanceDimensions {
+  requests: number;
+  errors: number;
+  totalMsSum: number;
+  buckets: HistogramBucket[];
 }
 
 export interface AccountModelBackoffRecord {
@@ -101,6 +129,20 @@ export interface SearchUsageRepo {
   deleteAll(): Promise<void>;
 }
 
+export interface PerformanceRepo {
+  recordLatency(sample: PerformanceLatencySample): Promise<void>;
+  recordError(sample: PerformanceErrorSample): Promise<void>;
+  query(opts: {
+    keyId?: string;
+    metricScope?: PerformanceMetricScope;
+    start: string;
+    end: string;
+  }): Promise<PerformanceTelemetryRecord[]>;
+  listAll(): Promise<PerformanceTelemetryRecord[]>;
+  set(record: PerformanceTelemetryRecord): Promise<void>;
+  deleteAll(): Promise<void>;
+}
+
 export interface CacheRepo {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, ttlMs?: number): Promise<void>;
@@ -131,6 +173,7 @@ export interface Repo {
   github: GitHubRepo;
   usage: UsageRepo;
   searchUsage: SearchUsageRepo;
+  performance: PerformanceRepo;
   cache: CacheRepo;
   accountModelBackoffs: AccountModelBackoffRepo;
   searchConfig: SearchConfigRepo;

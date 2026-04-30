@@ -1,77 +1,89 @@
+import type { Context } from "hono";
 import type { ChatCompletionResponse } from "../lib/chat-completions-types.ts";
+import type { PerformanceTelemetryContext } from "../lib/performance-telemetry.ts";
 
 export interface HiddenChatStreamUsageCapture {
   usage?: ChatCompletionResponse["usage"];
 }
 
+export interface PerformanceFailureCapture {
+  failed?: boolean;
+  completed?: boolean;
+}
+
 export interface UsageResponseMetadata {
   usageModel?: string;
   hiddenChatStreamUsageCapture?: HiddenChatStreamUsageCapture;
+  performance?: PerformanceTelemetryContext;
+  performanceFailureCapture?: PerformanceFailureCapture;
 }
 
-const USAGE_MODEL_HEADER = "x-copilot-gateway-usage-model";
-const HIDDEN_CHAT_USAGE_CAPTURE_HEADER =
-  "x-copilot-gateway-hidden-chat-usage-capture";
+const USAGE_RESPONSE_METADATA_CONTEXT_KEY =
+  "copilotGatewayUsageResponseMetadata";
 
-const hiddenChatStreamUsageCaptures = new Map<
-  string,
-  HiddenChatStreamUsageCapture
->();
-
-// Hono may clone Response objects between route handlers and middleware, so
-// object-attached metadata is not stable across that boundary. These private
-// headers carry in-process accounting metadata only until usage middleware reads
-// and strips them before the response leaves the gateway.
+// Keep accounting metadata on Hono's per-request Context instead of smuggling it
+// through Response headers. Headers are part of the client-visible HTTP
+// contract; this state is an internal route-to-middleware side channel only.
 export function withUsageResponseMetadata(
+  c: Context,
   response: Response,
   metadata: UsageResponseMetadata,
 ): Response {
-  const headers = new Headers(response.headers);
-  if (metadata.usageModel) headers.set(USAGE_MODEL_HEADER, metadata.usageModel);
-  if (metadata.hiddenChatStreamUsageCapture) {
-    const captureId = crypto.randomUUID();
-    hiddenChatStreamUsageCaptures.set(
-      captureId,
-      metadata.hiddenChatStreamUsageCapture,
-    );
-    headers.set(HIDDEN_CHAT_USAGE_CAPTURE_HEADER, captureId);
-  }
-
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
+  const existing = getUsageResponseMetadata(c);
+  c.set(USAGE_RESPONSE_METADATA_CONTEXT_KEY, { ...existing, ...metadata });
+  return response;
 }
 
 export function getUsageResponseMetadata(
-  response: Response,
+  c: Context,
 ): UsageResponseMetadata | undefined {
-  const usageModel = response.headers.get(USAGE_MODEL_HEADER) ?? undefined;
-  const captureId = response.headers.get(HIDDEN_CHAT_USAGE_CAPTURE_HEADER);
-  const hiddenChatStreamUsageCapture = captureId
-    ? hiddenChatStreamUsageCaptures.get(captureId)
-    : undefined;
-  if (captureId) hiddenChatStreamUsageCaptures.delete(captureId);
-  if (!usageModel && !hiddenChatStreamUsageCapture) return undefined;
-  return { usageModel, hiddenChatStreamUsageCapture };
+  const value = c.get(USAGE_RESPONSE_METADATA_CONTEXT_KEY);
+  return isUsageResponseMetadata(value) ? value : undefined;
 }
 
-export function stripUsageResponseMetadata(response: Response): Response {
-  if (
-    !response.headers.has(USAGE_MODEL_HEADER) &&
-    !response.headers.has(HIDDEN_CHAT_USAGE_CAPTURE_HEADER)
-  ) {
-    return response;
-  }
+export function getPerformanceResponseMetadata(
+  c: Context,
+): PerformanceTelemetryContext | undefined {
+  return getUsageResponseMetadata(c)?.performance;
+}
 
-  const headers = new Headers(response.headers);
-  headers.delete(USAGE_MODEL_HEADER);
-  headers.delete(HIDDEN_CHAT_USAGE_CAPTURE_HEADER);
+export function getPerformanceFailureCapture(
+  c: Context,
+): PerformanceFailureCapture | undefined {
+  return getUsageResponseMetadata(c)?.performanceFailureCapture;
+}
 
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
+function isUsageResponseMetadata(
+  value: unknown,
+): value is UsageResponseMetadata {
+  if (!value || typeof value !== "object") return false;
+  const metadata = value as Partial<UsageResponseMetadata>;
+  return (metadata.usageModel === undefined ||
+    typeof metadata.usageModel === "string") &&
+    (metadata.hiddenChatStreamUsageCapture === undefined ||
+      typeof metadata.hiddenChatStreamUsageCapture === "object") &&
+    (metadata.performance === undefined ||
+      isPerformanceContext(metadata.performance)) &&
+    (metadata.performanceFailureCapture === undefined ||
+      typeof metadata.performanceFailureCapture === "object");
+}
+
+function isPerformanceContext(
+  value: unknown,
+): value is PerformanceTelemetryContext {
+  if (!value || typeof value !== "object") return false;
+  const context = value as Partial<PerformanceTelemetryContext>;
+  return typeof context.keyId === "string" &&
+    typeof context.model === "string" &&
+    isLlmApiName(context.sourceApi) &&
+    isLlmApiName(context.targetApi) &&
+    typeof context.stream === "boolean" &&
+    typeof context.runtimeLocation === "string";
+}
+
+function isLlmApiName(
+  value: unknown,
+): value is PerformanceTelemetryContext["sourceApi"] {
+  return value === "messages" || value === "responses" ||
+    value === "chat-completions";
 }

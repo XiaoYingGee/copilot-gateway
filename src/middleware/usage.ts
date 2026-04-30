@@ -6,7 +6,6 @@ import { recordUsage } from "../lib/usage-tracker.ts";
 import { touchApiKeyLastUsed } from "../lib/api-keys.ts";
 import {
   getUsageResponseMetadata,
-  stripUsageResponseMetadata,
   type UsageResponseMetadata,
 } from "./usage-response-metadata.ts";
 
@@ -28,8 +27,7 @@ export const usageMiddleware = async (c: Context, next: Next) => {
 
   await next();
 
-  const metadata = getUsageResponseMetadata(c.res);
-  c.res = stripUsageResponseMetadata(c.res);
+  const metadata = getUsageResponseMetadata(c);
 
   const keyId: string | undefined = c.get("apiKeyId");
   if (!keyId) return;

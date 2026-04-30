@@ -6,6 +6,12 @@ import type {
   CacheRepo,
   GitHubAccount,
   GitHubRepo,
+  PerformanceDimensions,
+  PerformanceErrorSample,
+  PerformanceLatencySample,
+  PerformanceMetricScope,
+  PerformanceRepo,
+  PerformanceTelemetryRecord,
   Repo,
   SearchConfigRepo,
   SearchUsageRecord,
@@ -14,6 +20,7 @@ import type {
   UsageRepo,
 } from "./types.ts";
 import { assertWebSearchProviderName } from "../lib/web-search-types.ts";
+import { latencyBucketForMs } from "../lib/performance-histogram.ts";
 
 const SEARCH_CONFIG_KEY: Deno.KvKey = ["config", "search_config"];
 const GITHUB_ACCOUNT_ORDER_KEY: Deno.KvKey = ["config", "github_account_order"];
@@ -385,6 +392,262 @@ class DenoKvSearchUsageRepo implements SearchUsageRepo {
   }
 }
 
+class DenoKvPerformanceRepo implements PerformanceRepo {
+  constructor(private kv: Deno.Kv) {}
+
+  private dimensionKey(sample: PerformanceDimensions): Deno.KvKeyPart[] {
+    return [
+      sample.hour,
+      sample.metricScope,
+      sample.keyId,
+      sample.model,
+      sample.sourceApi,
+      sample.targetApi,
+      sample.stream ? "1" : "0",
+      sample.runtimeLocation,
+    ];
+  }
+
+  async recordLatency(sample: PerformanceLatencySample): Promise<void> {
+    const durationMs = Math.max(0, Math.round(sample.durationMs));
+    const dimensionKey = this.dimensionKey(sample);
+    const bucket = latencyBucketForMs(durationMs);
+    await this.kv.atomic()
+      .sum(["performance", "summary", ...dimensionKey, "requests"], 1n)
+      .sum(
+        ["performance", "summary", ...dimensionKey, "total_ms_sum"],
+        BigInt(durationMs),
+      )
+      .sum([
+        "performance",
+        "bucket",
+        ...dimensionKey,
+        bucket.lowerMs,
+        bucket.upperMs,
+      ], 1n)
+      .commit();
+  }
+
+  async recordError(sample: PerformanceErrorSample): Promise<void> {
+    await this.kv.atomic()
+      .sum(
+        ["performance", "summary", ...this.dimensionKey(sample), "errors"],
+        1n,
+      )
+      .commit();
+  }
+
+  async query(opts: {
+    keyId?: string;
+    metricScope?: PerformanceMetricScope;
+    start: string;
+    end: string;
+  }): Promise<PerformanceTelemetryRecord[]> {
+    return await this.collect({
+      summarySelector: {
+        start: ["performance", "summary", opts.start],
+        end: ["performance", "summary", opts.end],
+      },
+      bucketSelector: {
+        start: ["performance", "bucket", opts.start],
+        end: ["performance", "bucket", opts.end],
+      },
+      filter: (record) => this.matches(record, opts),
+    });
+  }
+
+  async listAll(): Promise<PerformanceTelemetryRecord[]> {
+    return await this.collect({
+      summarySelector: { prefix: ["performance", "summary"] },
+      bucketSelector: { prefix: ["performance", "bucket"] },
+      filter: () => true,
+    });
+  }
+
+  async set(record: PerformanceTelemetryRecord): Promise<void> {
+    await this.deleteDimension(record);
+    const dimensionKey = this.dimensionKey(record);
+    let atomic = this.kv.atomic()
+      .set(
+        ["performance", "summary", ...dimensionKey, "requests"],
+        new Deno.KvU64(BigInt(record.requests)),
+      )
+      .set(
+        ["performance", "summary", ...dimensionKey, "errors"],
+        new Deno.KvU64(BigInt(record.errors)),
+      )
+      .set(
+        ["performance", "summary", ...dimensionKey, "total_ms_sum"],
+        new Deno.KvU64(BigInt(record.totalMsSum)),
+      );
+    for (const bucket of record.buckets) {
+      atomic = atomic.set(
+        [
+          "performance",
+          "bucket",
+          ...dimensionKey,
+          bucket.lowerMs,
+          bucket.upperMs,
+        ],
+        new Deno.KvU64(BigInt(bucket.count)),
+      );
+    }
+    await atomic.commit();
+  }
+
+  async deleteAll(): Promise<void> {
+    for await (const entry of this.kv.list({ prefix: ["performance"] })) {
+      await this.kv.delete(entry.key);
+    }
+  }
+
+  private async collect(options: {
+    summarySelector: Deno.KvListSelector;
+    bucketSelector: Deno.KvListSelector;
+    filter: (record: PerformanceDimensions) => boolean;
+  }): Promise<PerformanceTelemetryRecord[]> {
+    const records = new Map<string, PerformanceTelemetryRecord>();
+    for await (
+      const entry of this.kv.list<Deno.KvU64>(options.summarySelector)
+    ) {
+      const parsed = this.parseSummaryKey(entry.key);
+      if (!options.filter(parsed)) continue;
+      const record = this.recordFor(records, parsed);
+      const value = Number(entry.value);
+      if (parsed.metric === "requests") record.requests = value;
+      if (parsed.metric === "errors") record.errors = value;
+      if (parsed.metric === "total_ms_sum") record.totalMsSum = value;
+    }
+
+    for await (
+      const entry of this.kv.list<Deno.KvU64>(options.bucketSelector)
+    ) {
+      const parsed = this.parseBucketKey(entry.key);
+      if (!options.filter(parsed)) continue;
+      this.recordFor(records, parsed).buckets.push({
+        lowerMs: parsed.lowerMs,
+        upperMs: parsed.upperMs,
+        count: Number(entry.value),
+      });
+    }
+
+    return [...records.values()]
+      .map((record) => ({
+        ...record,
+        buckets: record.buckets.toSorted((a, b) =>
+          a.upperMs - b.upperMs || a.lowerMs - b.lowerMs
+        ),
+      }))
+      .sort(comparePerformanceTelemetryRecords);
+  }
+
+  private parseDimensions(key: Deno.KvKey): PerformanceDimensions {
+    return {
+      hour: key[2] as string,
+      metricScope: key[3] as PerformanceMetricScope,
+      keyId: key[4] as string,
+      model: key[5] as string,
+      sourceApi: key[6] as PerformanceTelemetryRecord["sourceApi"],
+      targetApi: key[7] as PerformanceTelemetryRecord["targetApi"],
+      stream: key[8] === "1",
+      runtimeLocation: key[9] as string,
+    };
+  }
+
+  private parseSummaryKey(
+    key: Deno.KvKey,
+  ): PerformanceDimensions & { metric: string } {
+    return { ...this.parseDimensions(key), metric: key[10] as string };
+  }
+
+  private parseBucketKey(
+    key: Deno.KvKey,
+  ): PerformanceDimensions & { lowerMs: number; upperMs: number } {
+    return {
+      ...this.parseDimensions(key),
+      lowerMs: key[10] as number,
+      upperMs: key[11] as number,
+    };
+  }
+
+  private matches(
+    record: PerformanceDimensions,
+    opts: {
+      keyId?: string;
+      metricScope?: PerformanceMetricScope;
+      start: string;
+      end: string;
+    },
+  ): boolean {
+    return record.hour >= opts.start && record.hour < opts.end &&
+      (!opts.keyId || record.keyId === opts.keyId) &&
+      (!opts.metricScope || record.metricScope === opts.metricScope);
+  }
+
+  private recordFor(
+    records: Map<string, PerformanceTelemetryRecord>,
+    dimensions: PerformanceDimensions,
+  ): PerformanceTelemetryRecord {
+    const key = [
+      dimensions.hour,
+      dimensions.metricScope,
+      dimensions.keyId,
+      dimensions.model,
+      dimensions.sourceApi,
+      dimensions.targetApi,
+      dimensions.stream ? "1" : "0",
+      dimensions.runtimeLocation,
+    ].join("\0");
+    let record = records.get(key);
+    if (!record) {
+      record = {
+        hour: dimensions.hour,
+        metricScope: dimensions.metricScope,
+        keyId: dimensions.keyId,
+        model: dimensions.model,
+        sourceApi: dimensions.sourceApi,
+        targetApi: dimensions.targetApi,
+        stream: dimensions.stream,
+        runtimeLocation: dimensions.runtimeLocation,
+        requests: 0,
+        errors: 0,
+        totalMsSum: 0,
+        buckets: [],
+      };
+      records.set(key, record);
+    }
+    return record;
+  }
+
+  private async deleteDimension(record: PerformanceDimensions): Promise<void> {
+    const dimensionKey = this.dimensionKey(record);
+    for (
+      const prefix of [
+        ["performance", "summary", ...dimensionKey],
+        ["performance", "bucket", ...dimensionKey],
+      ]
+    ) {
+      for await (const entry of this.kv.list({ prefix })) {
+        await this.kv.delete(entry.key);
+      }
+    }
+  }
+}
+
+function comparePerformanceTelemetryRecords(
+  a: PerformanceTelemetryRecord,
+  b: PerformanceTelemetryRecord,
+): number {
+  return a.hour.localeCompare(b.hour) ||
+    a.metricScope.localeCompare(b.metricScope) ||
+    a.keyId.localeCompare(b.keyId) ||
+    a.model.localeCompare(b.model) ||
+    a.sourceApi.localeCompare(b.sourceApi) ||
+    a.targetApi.localeCompare(b.targetApi) ||
+    Number(a.stream) - Number(b.stream) ||
+    a.runtimeLocation.localeCompare(b.runtimeLocation);
+}
+
 class DenoKvCacheRepo implements CacheRepo {
   constructor(private kv: Deno.Kv) {}
 
@@ -507,6 +770,7 @@ export class DenoKvRepo implements Repo {
   github: GitHubRepo;
   usage: UsageRepo;
   searchUsage: SearchUsageRepo;
+  performance: PerformanceRepo;
   cache: CacheRepo;
   accountModelBackoffs: AccountModelBackoffRepo;
   searchConfig: SearchConfigRepo;
@@ -516,6 +780,7 @@ export class DenoKvRepo implements Repo {
     this.github = new DenoKvGitHubRepo(kv);
     this.usage = new DenoKvUsageRepo(kv);
     this.searchUsage = new DenoKvSearchUsageRepo(kv);
+    this.performance = new DenoKvPerformanceRepo(kv);
     this.cache = new DenoKvCacheRepo(kv);
     this.accountModelBackoffs = new DenoKvAccountModelBackoffRepo(kv);
     this.searchConfig = new DenoKvSearchConfigRepo(kv);

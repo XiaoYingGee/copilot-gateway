@@ -4,6 +4,7 @@ import {
   renderDashboardHeader,
   renderKeysTab,
   renderModelsTab,
+  renderPerformanceTab,
   renderSettingsTab,
   renderUpstreamTab,
   renderUsageTab,
@@ -27,7 +28,7 @@ export function DashboardPage() {
         ${renderDashboardHeader()}
 
         <main class="max-w-6xl mx-auto px-4 sm:px-6 pt-4 sm:pt-5 pb-8">
-          ${renderUpstreamTab()} ${renderKeysTab()} ${renderUsageTab()} ${renderModelsTab()} ${renderSettingsTab()}
+          ${renderUpstreamTab()} ${renderKeysTab()} ${renderUsageTab()} ${renderPerformanceTab()} ${renderModelsTab()} ${renderSettingsTab()}
         </main>
       </div>
 

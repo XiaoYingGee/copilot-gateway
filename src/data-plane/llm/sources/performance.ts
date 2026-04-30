@@ -1,0 +1,31 @@
+import type { PerformanceFailureCapture } from "../../../middleware/usage-response-metadata.ts";
+import type { ProtocolFrame } from "../shared/stream/types.ts";
+
+export const markPerformanceFailure = (
+  capture: PerformanceFailureCapture,
+): void => {
+  capture.failed = true;
+};
+
+export const markPerformanceCompletion = (
+  capture: PerformanceFailureCapture,
+): void => {
+  capture.completed = true;
+};
+
+export const trackPerformanceOutcome = async function* <TEvent>(
+  frames: AsyncIterable<ProtocolFrame<TEvent>>,
+  capture: PerformanceFailureCapture,
+  isFailure: (event: TEvent) => boolean,
+  isCompletion: (frame: ProtocolFrame<TEvent>) => boolean,
+): AsyncGenerator<ProtocolFrame<TEvent>> {
+  for await (const frame of frames) {
+    if (frame.type === "event" && isFailure(frame.event)) {
+      markPerformanceFailure(capture);
+    }
+    if (isCompletion(frame)) {
+      markPerformanceCompletion(capture);
+    }
+    yield frame;
+  }
+};

@@ -4,18 +4,24 @@ import {
   toInternalDebugError,
 } from "../../shared/errors/internal-debug-error.ts";
 import type { ChatCompletionChunk } from "../../../../lib/chat-completions-types.ts";
+import { chatCompletionsErrorPayloadMessage } from "../../../../lib/chat-completions-errors.ts";
 import { collectChatProtocolEventsToCompletion } from "./events/to-response.ts";
 import { chatProtocolEventsToSSEFrames } from "./events/to-sse.ts";
 import { chatCompletionsSourceInterceptors } from "./interceptors/index.ts";
 import type { StreamExecuteResult } from "../../shared/errors/result.ts";
 import { upstreamErrorToResponse } from "../../shared/errors/upstream-error.ts";
 import { proxySSE } from "../../shared/stream/proxy-sse.ts";
-import { sseFrame } from "../../shared/stream/types.ts";
+import { type ProtocolFrame, sseFrame } from "../../shared/stream/types.ts";
 import { runSourceInterceptors } from "../run-interceptors.ts";
 import {
   type HiddenChatStreamUsageCapture,
+  type PerformanceFailureCapture,
   withUsageResponseMetadata,
 } from "../../../../middleware/usage-response-metadata.ts";
+import {
+  markPerformanceFailure,
+  trackPerformanceOutcome,
+} from "../performance.ts";
 
 const internalChatErrorPayload = (error: InternalDebugError) => ({
   error: {
@@ -42,6 +48,13 @@ const internalChatStreamErrorFrame = (error: unknown) =>
     "error",
   );
 
+const isChatCompletionFailureEvent = (event: ChatCompletionChunk): boolean =>
+  chatCompletionsErrorPayloadMessage(event) !== null;
+
+const isChatCompletionCompletionFrame = (
+  frame: ProtocolFrame<ChatCompletionChunk>,
+): boolean => frame.type === "done";
+
 export const respondChatCompletions = async (
   c: Context,
   initialResult: StreamExecuteResult<ChatCompletionChunk>,
@@ -53,36 +66,85 @@ export const respondChatCompletions = async (
     chatCompletionsSourceInterceptors,
   );
 
-  if (result.type === "upstream-error") return upstreamErrorToResponse(result);
-  if (result.type === "internal-error") {
-    return internalChatErrorResponse(result.status, result.error);
+  if (result.type === "upstream-error") {
+    return withUsageResponseMetadata(c, upstreamErrorToResponse(result), {
+      performance: result.performance,
+    });
   }
-
-  if (!wantsStream) {
+  if (result.type === "internal-error") {
     return withUsageResponseMetadata(
-      Response.json(
-        await collectChatProtocolEventsToCompletion(result.events),
-      ),
-      { usageModel: result.usageModel },
+      c,
+      internalChatErrorResponse(result.status, result.error),
+      { performance: result.performance },
     );
   }
 
+  if (!wantsStream) {
+    const performanceFailureCapture: PerformanceFailureCapture = {};
+    try {
+      const response = await collectChatProtocolEventsToCompletion(
+        result.events,
+      );
+
+      return withUsageResponseMetadata(
+        c,
+        Response.json(response),
+        {
+          usageModel: result.usageModel,
+          performance: result.performance,
+          performanceFailureCapture,
+        },
+      );
+    } catch (error) {
+      markPerformanceFailure(performanceFailureCapture);
+
+      return withUsageResponseMetadata(
+        c,
+        internalChatErrorResponse(
+          502,
+          toInternalDebugError(error, "chat-completions"),
+        ),
+        {
+          performance: result.performance,
+          performanceFailureCapture,
+        },
+      );
+    }
+  }
+
   const hiddenUsageCapture: HiddenChatStreamUsageCapture = {};
+  const performanceFailureCapture: PerformanceFailureCapture = {};
 
   return withUsageResponseMetadata(
+    c,
     proxySSE(
       c,
-      chatProtocolEventsToSSEFrames(result.events, {
-        includeUsageChunk,
-        onUsageChunk: (usage) => {
-          hiddenUsageCapture.usage = usage;
+      chatProtocolEventsToSSEFrames(
+        trackPerformanceOutcome(
+          result.events,
+          performanceFailureCapture,
+          isChatCompletionFailureEvent,
+          isChatCompletionCompletionFrame,
+        ),
+        {
+          includeUsageChunk,
+          onUsageChunk: (usage) => {
+            hiddenUsageCapture.usage = usage;
+          },
         },
-      }),
-      { onError: internalChatStreamErrorFrame },
+      ),
+      {
+        onError: (error) => {
+          markPerformanceFailure(performanceFailureCapture);
+          return internalChatStreamErrorFrame(error);
+        },
+      },
     ),
     {
       hiddenChatStreamUsageCapture: hiddenUsageCapture,
       usageModel: result.usageModel,
+      performance: result.performance,
+      performanceFailureCapture,
     },
   );
 };

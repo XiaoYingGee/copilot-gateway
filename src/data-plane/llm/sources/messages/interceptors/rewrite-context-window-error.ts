@@ -28,6 +28,7 @@ export const rewriteContextWindowError = (
   if (!isContextWindowError(body)) return result;
 
   return {
+    ...result,
     type: "upstream-error",
     status: 400,
     headers: new Headers({ "content-type": "application/json" }),

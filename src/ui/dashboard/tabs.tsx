@@ -139,7 +139,9 @@ export function renderDashboardHeader() {
           >Copilot Gateway</span>
         </div>
 
-        <nav class="order-3 flex w-full max-w-full gap-1 overflow-x-auto rounded-lg bg-surface-800 p-0.5 sm:order-none sm:w-fit">
+        <nav
+          class="order-3 flex w-full max-w-full gap-1 overflow-x-auto rounded-lg bg-surface-800 p-0.5 sm:order-none sm:w-fit"
+        >
           <template x-if="isAdmin">
             <button
               @click="switchTab('upstream')"
@@ -164,6 +166,13 @@ export function renderDashboardHeader() {
             Usage
           </button>
           <button
+            @click="switchTab('performance')"
+            class="shrink-0 px-2 py-2 rounded-md text-xs font-medium transition-all sm:px-4 sm:text-sm"
+            :class="tab === 'performance' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
+          >
+            Performance
+          </button>
+          <button
             @click="switchTab('models')"
             class="shrink-0 px-2 py-2 rounded-md text-xs font-medium transition-all sm:px-4 sm:text-sm"
             :class="tab === 'models' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
@@ -181,7 +190,9 @@ export function renderDashboardHeader() {
           </template>
         </nav>
 
-        <button @click="logout()" class="btn-ghost text-xs ml-auto shrink-0">Logout</button>
+        <button @click="logout()" class="btn-ghost text-xs ml-auto shrink-0">
+          Logout
+        </button>
       </div>
     </header>
   `;
@@ -472,7 +483,10 @@ export function renderUpstreamTab() {
                             >
                             </p>
                           </div>
-                          <p class="text-xs text-gray-500 truncate" x-text="'@' + acct.login">
+                          <p
+                            class="text-xs text-gray-500 truncate"
+                            x-text="'@' + acct.login"
+                          >
                           </p>
                           <div class="mt-2" x-show="hasUnavailableModels(acct)">
                             <button
@@ -481,7 +495,9 @@ export function renderUpstreamTab() {
                               :aria-expanded="unavailablePanelOpen(acct).toString()"
                               class="inline-flex min-h-7 items-center gap-1.5 rounded-md bg-accent-amber/10 px-2 text-[10px] font-medium uppercase tracking-widest text-accent-amber ring-1 ring-accent-amber/20 transition-colors hover:bg-accent-amber/15"
                             >
-                              <span class="h-1.5 w-1.5 rounded-full bg-accent-amber status-pulse"></span>
+                              <span
+                                class="h-1.5 w-1.5 rounded-full bg-accent-amber status-pulse"
+                              ></span>
                               <span x-text="unavailableBadgeText(acct)"></span>
                               <svg
                                 x-show="hasUnavailableModels(acct)"
@@ -505,16 +521,20 @@ export function renderUpstreamTab() {
                               x-for="status in unavailableModels(acct)"
                               :key="status.model + ':' + status.status"
                             >
-                              <div class="flex flex-col gap-1 rounded-md bg-white/[0.03] px-2 py-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                              <div
+                                class="flex flex-col gap-1 rounded-md bg-white/[0.03] px-2 py-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                              >
                                 <div class="min-w-0">
                                   <p
                                     class="break-all font-mono text-[11px] text-white"
                                     x-text="status.model"
-                                  ></p>
+                                  >
+                                  </p>
                                   <p
                                     class="mt-0.5 text-[10px] text-gray-500"
                                     x-text="'HTTP ' + status.status"
-                                  ></p>
+                                  >
+                                  </p>
                                 </div>
                                 <span
                                   class="w-fit shrink-0 font-mono text-[10px] text-accent-amber"
@@ -525,7 +545,9 @@ export function renderUpstreamTab() {
                           </div>
                         </div>
                       </div>
-                      <div class="flex w-full shrink-0 items-center justify-end gap-1 border-t border-white/[0.04] pt-2 sm:w-auto sm:border-t-0 sm:pt-0 sm:gap-1.5">
+                      <div
+                        class="flex w-full shrink-0 items-center justify-end gap-1 border-t border-white/[0.04] pt-2 sm:w-auto sm:border-t-0 sm:pt-0 sm:gap-1.5"
+                      >
                         <button
                           @click.stop="moveGithubAccount(acct.id, -1)"
                           class="inline-flex min-h-8 min-w-8 items-center justify-center rounded-md text-gray-600 hover:text-accent-cyan hover:bg-white/[0.04] transition-colors p-1 disabled:opacity-30 disabled:hover:text-gray-600 disabled:hover:bg-transparent sm:min-h-9 sm:min-w-9"
@@ -873,10 +895,15 @@ export function renderKeysTab() {
   return html`
     <div x-show="tab === 'keys'">
       <div class="glass-card p-5 sm:p-6 mb-6 animate-in">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+        <div
+          class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6"
+        >
           <span class="text-xs font-medium text-gray-500 uppercase tracking-widest"
           >API Keys</span>
-          <div x-show="isAdmin" class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+          <div
+            x-show="isAdmin"
+            class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center"
+          >
             <input
               type="text"
               x-model="newKeyName"
@@ -955,7 +982,10 @@ export function renderKeysTab() {
                           :class="selectedKeyId === k.id ? 'bg-accent-cyan' : 'bg-transparent'"
                         >
                         </div>
-                        <span class="text-white font-medium truncate" x-text="k.name"></span>
+                        <span
+                          class="text-white font-medium truncate"
+                          x-text="k.name"
+                        ></span>
                       </div>
                     </td>
                     <td class="py-3 pr-4">
@@ -1263,7 +1293,9 @@ export function renderUsageTab() {
               ${spinner("h-3.5 w-3.5 text-gray-500")}
             </template>
           </div>
-          <div class="flex max-w-full items-center gap-1 overflow-x-auto bg-surface-800 rounded-lg p-0.5">
+          <div
+            class="flex max-w-full items-center gap-1 overflow-x-auto bg-surface-800 rounded-lg p-0.5"
+          >
             <button
               @click="switchTokenRange('today')"
               class="shrink-0 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
@@ -1417,6 +1449,283 @@ export function renderUsageTab() {
   `;
 }
 
+export function renderPerformanceTab() {
+  return html`
+    <div x-show="tab === 'performance'">
+      <div class="glass-card p-6 animate-in">
+        <div
+          class="flex flex-col gap-4 mb-6 lg:flex-row lg:items-center lg:justify-between"
+        >
+          <div class="flex items-center gap-3">
+            <span
+              class="text-xs font-medium text-gray-500 uppercase tracking-widest"
+            >Performance</span>
+            <template x-if="performanceLoading">
+              ${spinner("h-3.5 w-3.5 text-gray-500")}
+            </template>
+          </div>
+          <div class="flex max-w-full flex-wrap items-center gap-2">
+            <div
+              class="flex max-w-full items-center gap-1 overflow-x-auto bg-surface-800 rounded-lg p-0.5"
+            >
+              <button
+                @click="switchPerformanceMetricScope('request_total')"
+                class="shrink-0 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                :class="performanceMetricScope === 'request_total' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
+              >
+                Total
+              </button>
+              <button
+                @click="switchPerformanceMetricScope('upstream_success')"
+                class="shrink-0 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                :class="performanceMetricScope === 'upstream_success' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
+              >
+                Upstream
+              </button>
+            </div>
+            <div
+              class="flex max-w-full items-center gap-1 overflow-x-auto bg-surface-800 rounded-lg p-0.5"
+            >
+              <button
+                @click="switchPerformanceChartView('model')"
+                class="shrink-0 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                :class="performanceChartView === 'model' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
+              >
+                By Model
+              </button>
+              <button
+                @click="switchPerformanceChartView('percentile')"
+                class="shrink-0 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                :class="performanceChartView === 'percentile' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
+              >
+                By Percentile
+              </button>
+            </div>
+            <div
+              x-show="performanceChartView === 'model'"
+              class="flex max-w-full items-center gap-1 overflow-x-auto bg-surface-800 rounded-lg p-0.5"
+            >
+              <button
+                @click="switchPerformancePercentile('p50Ms')"
+                class="shrink-0 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                :class="performancePercentile === 'p50Ms' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
+              >
+                p50
+              </button>
+              <button
+                @click="switchPerformancePercentile('p95Ms')"
+                class="shrink-0 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                :class="performancePercentile === 'p95Ms' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
+              >
+                p95
+              </button>
+              <button
+                @click="switchPerformancePercentile('p99Ms')"
+                class="shrink-0 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                :class="performancePercentile === 'p99Ms' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
+              >
+                p99
+              </button>
+            </div>
+            <div
+              x-show="performanceChartView === 'percentile'"
+              class="flex max-w-full items-center gap-1 overflow-x-auto bg-surface-800 rounded-lg p-0.5"
+            >
+              <select
+                x-model="performanceModel"
+                @change="renderPerformanceChart()"
+                class="shrink-0 min-w-44 max-w-64 rounded-md bg-surface-600 px-3 py-1.5 text-xs font-medium text-white outline-none"
+                aria-label="Performance model"
+              >
+                <template x-for="model in performanceModelOptions()" :key="model">
+                  <option :value="model" x-text="model"></option>
+                </template>
+              </select>
+            </div>
+            <div
+              class="flex max-w-full items-center gap-1 overflow-x-auto bg-surface-800 rounded-lg p-0.5"
+            >
+              <button
+                @click="switchPerformanceRange('today')"
+                class="shrink-0 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                :class="performanceRange === 'today' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
+              >
+                Last Day
+              </button>
+              <button
+                @click="switchPerformanceRange('7d')"
+                class="shrink-0 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                :class="performanceRange === '7d' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
+              >
+                7 Days
+              </button>
+              <button
+                @click="switchPerformanceRange('30d')"
+                class="shrink-0 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                :class="performanceRange === '30d' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
+              >
+                30 Days
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 mb-6 lg:grid-cols-6">
+          <div class="rounded-md border border-white/5 bg-surface-800/60 px-3 py-3">
+            <span class="block text-xs text-gray-500 mb-1">Successful</span>
+            <span
+              class="block text-lg font-bold font-mono text-white"
+              x-text="performanceSummary.requests.toLocaleString()"
+            ></span>
+          </div>
+          <div class="rounded-md border border-white/5 bg-surface-800/60 px-3 py-3">
+            <span class="block text-xs text-gray-500 mb-1">Errors</span>
+            <span
+              class="block text-lg font-bold font-mono text-white"
+              x-text="performanceSummary.errors.toLocaleString()"
+            ></span>
+          </div>
+          <div class="rounded-md border border-white/5 bg-surface-800/60 px-3 py-3">
+            <span class="block text-xs text-gray-500 mb-1">Average</span>
+            <span
+              class="block text-lg font-bold font-mono text-white"
+              x-text="formatDuration(performanceSummary.avgMs)"
+            ></span>
+          </div>
+          <div class="rounded-md border border-white/5 bg-surface-800/60 px-3 py-3">
+            <span class="block text-xs text-gray-500 mb-1">p50</span>
+            <span
+              class="block text-lg font-bold font-mono text-white"
+              x-text="formatDuration(performanceSummary.p50Ms)"
+            ></span>
+          </div>
+          <div class="rounded-md border border-white/5 bg-surface-800/60 px-3 py-3">
+            <span class="block text-xs text-gray-500 mb-1">p95</span>
+            <span
+              class="block text-lg font-bold font-mono text-white"
+              x-text="formatDuration(performanceSummary.p95Ms)"
+            ></span>
+          </div>
+          <div class="rounded-md border border-white/5 bg-surface-800/60 px-3 py-3">
+            <span class="block text-xs text-gray-500 mb-1">p99</span>
+            <span
+              class="block text-lg font-bold font-mono text-white"
+              x-text="formatDuration(performanceSummary.p99Ms)"
+            ></span>
+          </div>
+        </div>
+
+        <div style="height: 340px; position: relative;">
+          <template x-if="performanceLoading && !chartsReady">
+            <div class="absolute inset-0 flex items-center justify-center">
+              <div class="flex flex-col items-center gap-3">
+                ${spinner("h-6 w-6 text-accent-cyan/60")}
+                <span class="text-xs text-gray-500">Loading performance data…</span>
+              </div>
+            </div>
+          </template>
+          <canvas id="performanceChartByModel"></canvas>
+        </div>
+
+        <div
+          class="grid grid-cols-1 gap-5 mt-6 pt-5 border-t border-white/5 lg:grid-cols-2"
+        >
+          <div>
+            <span
+              class="text-xs font-medium text-gray-500 uppercase tracking-widest mb-3 block"
+            >By Model</span>
+            <div class="overflow-x-auto rounded-md border border-white/5">
+              <table class="w-full text-sm">
+                <thead
+                  class="bg-surface-800/70 text-xs uppercase tracking-widest text-gray-500"
+                >
+                  <tr>
+                    <th class="px-3 py-2 text-left font-medium">Model</th>
+                    <th class="px-3 py-2 text-right font-medium">Req</th>
+                    <th
+                      class="px-3 py-2 text-right font-medium"
+                      x-text="performancePercentileLabel()"
+                    >
+                    </th>
+                    <th class="px-3 py-2 text-right font-medium">Avg</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5">
+                  <template x-for="row in performanceModelRows" :key="row.group">
+                    <tr>
+                      <td class="px-3 py-2 text-gray-300" x-text="row.group"></td>
+                      <td
+                        class="px-3 py-2 text-right font-mono text-gray-400"
+                        x-text="row.requests.toLocaleString()"
+                      >
+                      </td>
+                      <td
+                        class="px-3 py-2 text-right font-mono text-white"
+                        x-text="formatDuration(row[performancePercentile])"
+                      >
+                      </td>
+                      <td
+                        class="px-3 py-2 text-right font-mono text-gray-400"
+                        x-text="formatDuration(row.avgMs)"
+                      >
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div x-show="performanceRuntimeRows.length > 0">
+            <span
+              class="text-xs font-medium text-gray-500 uppercase tracking-widest mb-3 block"
+            >By Region</span>
+            <div class="overflow-x-auto rounded-md border border-white/5">
+              <table class="w-full text-sm">
+                <thead
+                  class="bg-surface-800/70 text-xs uppercase tracking-widest text-gray-500"
+                >
+                  <tr>
+                    <th class="px-3 py-2 text-left font-medium">Region</th>
+                    <th class="px-3 py-2 text-right font-medium">Req</th>
+                    <th
+                      class="px-3 py-2 text-right font-medium"
+                      x-text="performancePercentileLabel()"
+                    >
+                    </th>
+                    <th class="px-3 py-2 text-right font-medium">Avg</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5">
+                  <template x-for="row in performanceRuntimeRows" :key="row.group">
+                    <tr>
+                      <td class="px-3 py-2 text-gray-300" x-text="row.group"></td>
+                      <td
+                        class="px-3 py-2 text-right font-mono text-gray-400"
+                        x-text="row.requests.toLocaleString()"
+                      >
+                      </td>
+                      <td
+                        class="px-3 py-2 text-right font-mono text-white"
+                        x-text="formatDuration(row[performancePercentile])"
+                      >
+                      </td>
+                      <td
+                        class="px-3 py-2 text-right font-mono text-gray-400"
+                        x-text="formatDuration(row.avgMs)"
+                      >
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 export function renderSettingsTab() {
   return html`
     <template x-if="isAdmin">
@@ -1431,6 +1740,23 @@ export function renderSettingsTab() {
           <p class="text-sm text-gray-400 mb-4">
             Download all API keys, GitHub accounts, and usage data as a JSON file.
           </p>
+          <label
+            class="mb-4 flex items-start gap-3 rounded-md border border-white/5 bg-surface-800/50 p-3"
+          >
+            <input
+              type="checkbox"
+              class="mt-0.5 h-4 w-4 rounded border-white/10 bg-surface-900 text-accent-cyan"
+              x-model="exportIncludePerformance"
+            >
+            <span>
+              <span class="block text-sm font-medium text-gray-200">
+                Include Performance Telemetry
+              </span>
+              <span class="block text-xs text-gray-500">
+                Adds latency histogram history to the export.
+              </span>
+            </span>
+          </label>
           <button
             @click="exportData()"
             class="btn-primary"
@@ -1505,7 +1831,8 @@ export function renderSettingsTab() {
                     />
                     <polyline points="14 2 14 8 20 8" />
                   </svg>
-                  <p class="text-sm text-white break-all" x-text="importFile.name"></p>
+                  <p class="text-sm text-white break-all" x-text="importFile.name">
+                  </p>
                   <p
                     class="text-xs text-gray-500 mt-1"
                     x-text="'Exported: ' + (importPreview.exportedAt ? new Date(importPreview.exportedAt).toLocaleString() : 'unknown')"
@@ -1518,7 +1845,9 @@ export function renderSettingsTab() {
 
           <template x-if="importPreview.ready">
             <div>
-              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+              <div
+                class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4"
+              >
                 <div class="bg-surface-800 rounded-lg p-3 text-center">
                   <p class="text-xs text-gray-500 mb-1">API Keys</p>
                   <p
@@ -1548,6 +1877,14 @@ export function renderSettingsTab() {
                   <p
                     class="text-lg font-bold font-mono text-white"
                     x-text="importPreview.searchUsage"
+                  >
+                  </p>
+                </div>
+                <div class="bg-surface-800 rounded-lg p-3 text-center">
+                  <p class="text-xs text-gray-500 mb-1">Performance Records</p>
+                  <p
+                    class="text-lg font-bold font-mono text-white"
+                    x-text="importPreview.performance"
                   >
                   </p>
                 </div>
@@ -1642,7 +1979,9 @@ export function renderModelsTab() {
         class="glass-card glow-border animate-in flex h-[calc(100dvh-130px)] min-h-[560px] flex-col overflow-hidden lg:h-[calc(100vh-140px)] lg:flex-row"
       >
         <!-- Left: Model list -->
-        <div class="max-h-56 w-full shrink-0 border-b border-white/[0.06] flex flex-col lg:max-h-none lg:w-72 lg:border-b-0 lg:border-r">
+        <div
+          class="max-h-56 w-full shrink-0 border-b border-white/[0.06] flex flex-col lg:max-h-none lg:w-72 lg:border-b-0 lg:border-r"
+        >
           <div class="p-3 border-b border-white/[0.06]">
             <input
               type="text"
@@ -1845,7 +2184,10 @@ export function renderModelsTab() {
               x-show="chatModelInfo"
               class="shrink-0 p-3 border-t border-white/[0.06]"
             >
-              <div class="flex flex-col gap-2 mb-2 sm:flex-row sm:items-center" x-show="chatShowImage">
+              <div
+                class="flex flex-col gap-2 mb-2 sm:flex-row sm:items-center"
+                x-show="chatShowImage"
+              >
                 <input
                   type="text"
                   x-model="chatImageUrl"

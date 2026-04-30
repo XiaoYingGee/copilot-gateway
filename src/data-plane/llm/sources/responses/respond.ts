@@ -12,9 +12,16 @@ import { responsesSourceInterceptors } from "./interceptors/index.ts";
 import type { StreamExecuteResult } from "../../shared/errors/result.ts";
 import { upstreamErrorToResponse } from "../../shared/errors/upstream-error.ts";
 import { proxySSE } from "../../shared/stream/proxy-sse.ts";
-import { sseFrame } from "../../shared/stream/types.ts";
+import { type ProtocolFrame, sseFrame } from "../../shared/stream/types.ts";
 import { runSourceInterceptors } from "../run-interceptors.ts";
-import { withUsageResponseMetadata } from "../../../../middleware/usage-response-metadata.ts";
+import {
+  type PerformanceFailureCapture,
+  withUsageResponseMetadata,
+} from "../../../../middleware/usage-response-metadata.ts";
+import {
+  markPerformanceFailure,
+  trackPerformanceOutcome,
+} from "../performance.ts";
 
 const internalResponsesErrorPayload = (error: InternalDebugError) => ({
   error: {
@@ -51,6 +58,16 @@ const internalResponsesStreamErrorFrame = (error: unknown) => {
   );
 };
 
+const isResponsesFailureEvent = (event: SourceResponseStreamEvent): boolean =>
+  event.type === "error" || event.type === "response.failed";
+
+const isResponsesCompletionFrame = (
+  frame: ProtocolFrame<SourceResponseStreamEvent>,
+): boolean =>
+  frame.type === "event" &&
+  (frame.event.type === "response.completed" ||
+    frame.event.type === "response.incomplete");
+
 export const respondResponses = async (
   c: Context,
   initialResult: StreamExecuteResult<SourceResponseStreamEvent>,
@@ -61,18 +78,73 @@ export const respondResponses = async (
     responsesSourceInterceptors,
   );
 
-  if (result.type === "upstream-error") return upstreamErrorToResponse(result);
+  if (result.type === "upstream-error") {
+    return withUsageResponseMetadata(c, upstreamErrorToResponse(result), {
+      performance: result.performance,
+    });
+  }
   if (result.type === "internal-error") {
-    return internalResponsesErrorResponse(result.status, result.error);
+    return withUsageResponseMetadata(
+      c,
+      internalResponsesErrorResponse(result.status, result.error),
+      { performance: result.performance },
+    );
   }
 
-  const response = wantsStream
-    ? proxySSE(c, responsesProtocolEventsToSSEFrames(result.events), {
-      onError: internalResponsesStreamErrorFrame,
-    })
-    : Response.json(
-      await collectResponsesProtocolEventsToResult(result.events),
-    );
+  const performanceFailureCapture: PerformanceFailureCapture = {};
+  const events = trackPerformanceOutcome(
+    result.events,
+    performanceFailureCapture,
+    isResponsesFailureEvent,
+    isResponsesCompletionFrame,
+  );
 
-  return withUsageResponseMetadata(response, { usageModel: result.usageModel });
+  if (!wantsStream) {
+    try {
+      const response = await collectResponsesProtocolEventsToResult(events);
+      if (response.status === "failed") {
+        markPerformanceFailure(performanceFailureCapture);
+      }
+      return withUsageResponseMetadata(
+        c,
+        Response.json(response),
+        {
+          usageModel: result.usageModel,
+          performance: result.performance,
+          performanceFailureCapture,
+        },
+      );
+    } catch (error) {
+      markPerformanceFailure(performanceFailureCapture);
+
+      return withUsageResponseMetadata(
+        c,
+        internalResponsesErrorResponse(
+          502,
+          toInternalDebugError(error, "responses"),
+        ),
+        {
+          performance: result.performance,
+          performanceFailureCapture,
+        },
+      );
+    }
+  }
+
+  const response = proxySSE(
+    c,
+    responsesProtocolEventsToSSEFrames(events),
+    {
+      onError: (error) => {
+        markPerformanceFailure(performanceFailureCapture);
+        return internalResponsesStreamErrorFrame(error);
+      },
+    },
+  );
+
+  return withUsageResponseMetadata(c, response, {
+    usageModel: result.usageModel,
+    performance: result.performance,
+    performanceFailureCapture,
+  });
 };

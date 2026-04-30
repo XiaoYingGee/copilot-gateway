@@ -8,6 +8,7 @@ import type { Context } from "hono";
 import { queryUsage } from "../../lib/usage-tracker.ts";
 import { listApiKeys } from "../../lib/api-keys.ts";
 import { USAGE_KEY_COLOR_ORDER } from "../usage-key-colors.ts";
+import { aggregateUsageForDisplay } from "./aggregate.ts";
 
 export const tokenUsage = async (c: Context) => {
   const keyId = c.req.query("key_id") || undefined;
@@ -21,10 +22,11 @@ export const tokenUsage = async (c: Context) => {
     }, 400);
   }
 
-  const [records, keys] = await Promise.all([
+  const [rawRecords, keys] = await Promise.all([
     queryUsage({ keyId, start, end }),
     listApiKeys(),
   ]);
+  const records = aggregateUsageForDisplay(rawRecords);
 
   const keyMap = new Map(keys.map((k) => [k.id, k]));
   const recordsWithKeyMetadata = records.map((r) => ({

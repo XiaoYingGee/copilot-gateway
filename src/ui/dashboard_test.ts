@@ -36,9 +36,37 @@ type ChartOptions = {
 };
 
 type ChartConfig = {
-  data: { datasets: ChartDataset[] };
+  data: { labels?: unknown[]; datasets: ChartDataset[] };
   options: ChartOptions;
 };
+
+function expectedTodayChartLabels() {
+  const labels = [];
+  const cur = new Date();
+  cur.setMinutes(0, 0, 0);
+  for (let i = 23; i >= 0; i--) {
+    const d = new Date(cur.getTime() - i * 3600000);
+    const h = d.getHours();
+    labels.push(
+      String(h).padStart(2, "0") + ":00 \u2013 " +
+        String((h + 1) % 24).padStart(2, "0") + ":00",
+    );
+  }
+  return labels;
+}
+
+function expectedDailyChartLabels(days: number) {
+  const labels = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    d.setHours(0, 0, 0, 0);
+    labels.push(
+      d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    );
+  }
+  return labels;
+}
 
 function extractDashboardScript() {
   const html = DashboardPage().toString();
@@ -158,8 +186,147 @@ Deno.test("DashboardPage renders split dashboard shell", () => {
   assertStringIncludes(html, "Copilot Gateway");
   assertStringIncludes(html, "API Keys");
   assertStringIncludes(html, "Total Tokens");
+  assertStringIncludes(html, "Performance");
   assertStringIncludes(html, "Cache Hit Rate");
   assertStringIncludes(html, "function dashboardApp()");
+});
+
+Deno.test("dashboardApp renders performance model percentile chart", () => {
+  const { app, charts } = createDashboardHarness();
+  const currentHour = new Date();
+  currentHour.setMinutes(0, 0, 0);
+  const previousHour = new Date(currentHour.getTime() - 3600000);
+
+  app.tab = "performance";
+  app.performancePercentile = "p95Ms";
+  app.performanceSeries = [
+    {
+      bucket: app.localHourKey(previousHour),
+      group: "claude-opus-4-7",
+      p95Ms: 300,
+    },
+    {
+      bucket: app.localHourKey(currentHour),
+      group: "claude-opus-4-7",
+      p95Ms: 600,
+    },
+  ];
+
+  app.renderPerformanceChart();
+
+  assertEquals(charts.length, 1);
+  assertEquals(charts[0].data.datasets[0].label, "claude-opus-4-7");
+  assertEquals(charts[0].data.datasets[0].data.filter((v) => v !== null), [
+    300,
+    600,
+  ]);
+});
+
+Deno.test("dashboardApp renders performance chart over the full hourly range", () => {
+  const { app, charts } = createDashboardHarness();
+  const now = new Date();
+  now.setMinutes(0, 0, 0);
+
+  app.tab = "performance";
+  app.performanceRange = "today";
+  app.performancePercentile = "p95Ms";
+  app.performanceSeries = [
+    { bucket: app.localHourKey(now), group: "claude-opus-4-7", p95Ms: 600 },
+  ];
+
+  app.renderPerformanceChart();
+
+  assertEquals(charts[0].data.labels, expectedTodayChartLabels());
+  assertEquals(charts[0].data.datasets[0].data.length, 24);
+  assertEquals(charts[0].data.datasets[0].data.at(-1), 600);
+});
+
+Deno.test("dashboardApp renders performance chart with usage-style date labels", () => {
+  const { app, charts } = createDashboardHarness();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  app.tab = "performance";
+  app.performanceRange = "7d";
+  app.performancePercentile = "p95Ms";
+  app.performanceSeries = [
+    { bucket: app.localDateKey(today), group: "claude-opus-4-7", p95Ms: 600 },
+  ];
+
+  app.renderPerformanceChart();
+
+  assertEquals(charts[0].data.labels, expectedDailyChartLabels(7));
+  assertEquals(charts[0].data.datasets[0].data.length, 7);
+  assertEquals(charts[0].data.datasets[0].data.at(-1), 600);
+});
+
+Deno.test("dashboardApp renders performance percentile comparison chart", () => {
+  const { app, charts } = createDashboardHarness();
+  const currentHour = new Date();
+  currentHour.setMinutes(0, 0, 0);
+  const previousHour = new Date(currentHour.getTime() - 3600000);
+
+  app.tab = "performance";
+  app.performanceChartView = "percentile";
+  app.performanceModel = "claude-opus-4-7";
+  app.performanceSeries = [
+    {
+      bucket: app.localHourKey(previousHour),
+      group: "claude-opus-4-7",
+      p50Ms: 100,
+      p95Ms: 300,
+      p99Ms: 900,
+    },
+    {
+      bucket: app.localHourKey(currentHour),
+      group: "claude-opus-4-7",
+      p50Ms: 120,
+      p95Ms: 360,
+      p99Ms: 1200,
+    },
+    {
+      bucket: app.localHourKey(previousHour),
+      group: "gpt-5",
+      p50Ms: 30,
+      p95Ms: 60,
+      p99Ms: 90,
+    },
+  ];
+
+  app.renderPerformanceChart();
+
+  assertEquals(charts.length, 1);
+  assertEquals(charts[0].data.datasets.map((dataset) => dataset.label), [
+    "p50",
+    "p95",
+    "p99",
+  ]);
+  assertEquals(charts[0].data.datasets[1].data.filter((v) => v !== null), [
+    300,
+    360,
+  ]);
+});
+
+Deno.test("DashboardPage renders performance model selector for percentile view", () => {
+  const html = DashboardPage().toString();
+
+  assertStringIncludes(html, "performanceChartView === 'percentile'");
+  assertStringIncludes(html, 'x-model="performanceModel"');
+  assertStringIncludes(html, "performanceModelOptions()");
+});
+
+Deno.test("DashboardPage renders performance chart view switcher", () => {
+  const html = DashboardPage().toString();
+
+  assertStringIncludes(html, "By Model");
+  assertStringIncludes(html, "By Percentile");
+});
+
+Deno.test("DashboardPage loads performance dashboard aggregates in one request", () => {
+  const html = DashboardPage().toString();
+
+  assertStringIncludes(html, "'/api/performance/overview?'");
+  assertFalse(html.includes("this.fetchPerformanceRecords('runtimeLocation'"));
 });
 
 Deno.test("DashboardPage renders the search section below the usage cards without architecture labels", () => {
@@ -1028,7 +1195,7 @@ Deno.test("DashboardPage renders Settings import preview responsively", () => {
 
   assertStringIncludes(
     html,
-    "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4",
+    "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4",
   );
   assertStringIncludes(html, "flex flex-col gap-3 mb-4 sm:flex-row");
   assertFalse(html.includes("grid grid-cols-4 gap-3 mb-4"));
@@ -1063,20 +1230,39 @@ Deno.test("DashboardPage renders search usage chart after token summary content"
   );
 });
 
-Deno.test("DashboardPage import preview includes search usage records", () => {
+Deno.test("DashboardPage import preview includes usage and performance records", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "searchUsage: 0");
+  assertStringIncludes(html, "performance: 0");
   assertStringIncludes(
     html,
     "searchUsage: Array.isArray(json.data.searchUsage) ? json.data.searchUsage.length : 0",
   );
-  assertStringIncludes(html, "Search Usage Records");
-  assertStringIncludes(html, 'x-text="importPreview.searchUsage"');
   assertStringIncludes(
     html,
-    "result.imported.searchUsage + ' search usage records'",
+    "performance: Array.isArray(json.data.performance) ? json.data.performance.length : 0",
   );
+  assertStringIncludes(html, "Search Usage Records");
+  assertStringIncludes(html, 'x-text="importPreview.searchUsage"');
+  assertStringIncludes(html, "Performance Records");
+  assertStringIncludes(html, 'x-text="importPreview.performance"');
+  assertStringIncludes(
+    html,
+    "result.imported.searchUsage + ' search usage records, '",
+  );
+  assertStringIncludes(
+    html,
+    "result.imported.performance + ' performance records'",
+  );
+});
+
+Deno.test("DashboardPage makes performance export opt-in", () => {
+  const html = DashboardPage().toString();
+
+  assertStringIncludes(html, "exportIncludePerformance: false");
+  assertStringIncludes(html, "Include Performance Telemetry");
+  assertStringIncludes(html, "include_performance=1");
 });
 
 Deno.test("dashboardApp renders search usage per-key datasets for active provider only", () => {

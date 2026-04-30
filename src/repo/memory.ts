@@ -8,6 +8,11 @@ import type {
   CacheRepo,
   GitHubAccount,
   GitHubRepo,
+  PerformanceDimensions,
+  PerformanceErrorSample,
+  PerformanceLatencySample,
+  PerformanceRepo,
+  PerformanceTelemetryRecord,
   Repo,
   SearchConfigRepo,
   SearchUsageRecord,
@@ -16,6 +21,7 @@ import type {
   UsageRepo,
 } from "./types.ts";
 import { assertWebSearchProviderName } from "../lib/web-search-types.ts";
+import { latencyBucketForMs } from "../lib/performance-histogram.ts";
 
 class MemoryApiKeyRepo implements ApiKeyRepo {
   private store = new Map<string, ApiKey>();
@@ -260,6 +266,125 @@ class MemorySearchUsageRepo implements SearchUsageRepo {
   }
 }
 
+class MemoryPerformanceRepo implements PerformanceRepo {
+  private summaries = new Map<string, PerformanceTelemetryRecord>();
+
+  private key(r: PerformanceDimensions): string {
+    return [
+      r.hour,
+      r.metricScope,
+      r.keyId,
+      r.model,
+      r.sourceApi,
+      r.targetApi,
+      r.stream ? "1" : "0",
+      r.runtimeLocation,
+    ].join("\0");
+  }
+
+  private summary(sample: PerformanceDimensions): PerformanceTelemetryRecord {
+    const key = this.key(sample);
+    let record = this.summaries.get(key);
+    if (!record) {
+      record = {
+        hour: sample.hour,
+        metricScope: sample.metricScope,
+        keyId: sample.keyId,
+        model: sample.model,
+        sourceApi: sample.sourceApi,
+        targetApi: sample.targetApi,
+        stream: sample.stream,
+        runtimeLocation: sample.runtimeLocation,
+        requests: 0,
+        errors: 0,
+        totalMsSum: 0,
+        buckets: [],
+      };
+      this.summaries.set(key, record);
+    }
+    return record;
+  }
+
+  recordLatency(sample: PerformanceLatencySample): Promise<void> {
+    const record = this.summary(sample);
+    const durationMs = Math.max(0, Math.round(sample.durationMs));
+    record.requests += 1;
+    record.totalMsSum += durationMs;
+
+    const bucket = latencyBucketForMs(durationMs);
+    const existing = record.buckets.find((b) =>
+      b.lowerMs === bucket.lowerMs && b.upperMs === bucket.upperMs
+    );
+    if (existing) {
+      existing.count += 1;
+    } else {
+      record.buckets.push({ ...bucket, count: 1 });
+      record.buckets.sort((a, b) =>
+        a.upperMs - b.upperMs || a.lowerMs - b.lowerMs
+      );
+    }
+    return Promise.resolve();
+  }
+
+  recordError(sample: PerformanceErrorSample): Promise<void> {
+    this.summary(sample).errors += 1;
+    return Promise.resolve();
+  }
+
+  query(opts: {
+    keyId?: string;
+    metricScope?: PerformanceTelemetryRecord["metricScope"];
+    start: string;
+    end: string;
+  }): Promise<PerformanceTelemetryRecord[]> {
+    return Promise.resolve(
+      [...this.summaries.values()]
+        .filter((r) => r.hour >= opts.start && r.hour < opts.end)
+        .filter((r) => !opts.keyId || r.keyId === opts.keyId)
+        .filter((r) => !opts.metricScope || r.metricScope === opts.metricScope)
+        .map((r) => ({ ...r, buckets: r.buckets.map((b) => ({ ...b })) }))
+        .sort(comparePerformanceTelemetryRecords),
+    );
+  }
+
+  listAll(): Promise<PerformanceTelemetryRecord[]> {
+    return Promise.resolve(
+      [...this.summaries.values()]
+        .map((r) => ({ ...r, buckets: r.buckets.map((b) => ({ ...b })) }))
+        .sort(comparePerformanceTelemetryRecords),
+    );
+  }
+
+  set(record: PerformanceTelemetryRecord): Promise<void> {
+    this.summaries.set(this.key(record), {
+      ...record,
+      buckets: record.buckets
+        .map((bucket) => ({ ...bucket }))
+        .sort((a, b) => a.upperMs - b.upperMs || a.lowerMs - b.lowerMs),
+    });
+    return Promise.resolve();
+  }
+
+  deleteAll(): Promise<void> {
+    this.summaries.clear();
+    return Promise.resolve();
+  }
+}
+
+function comparePerformanceTelemetryRecords(
+  a: PerformanceTelemetryRecord,
+  b: PerformanceTelemetryRecord,
+): number {
+  return a.hour.localeCompare(b.hour) ||
+    a.metricScope.localeCompare(b.metricScope) ||
+    a.keyId.localeCompare(b.keyId) ||
+    a.model.localeCompare(b.model) ||
+    a.sourceApi.localeCompare(b.sourceApi) ||
+    a.targetApi.localeCompare(b.targetApi) ||
+    Number(a.stream) - Number(b.stream) ||
+    a.runtimeLocation.localeCompare(b.runtimeLocation);
+}
+
 class MemoryCacheRepo implements CacheRepo {
   private store = new Map<string, { value: string; expiresAt?: number }>();
 
@@ -374,6 +499,7 @@ export class InMemoryRepo implements Repo {
   github: GitHubRepo;
   usage: UsageRepo;
   searchUsage: SearchUsageRepo;
+  performance: PerformanceRepo;
   cache: CacheRepo;
   accountModelBackoffs: AccountModelBackoffRepo;
   searchConfig: SearchConfigRepo;
@@ -383,6 +509,7 @@ export class InMemoryRepo implements Repo {
     this.github = new MemoryGitHubRepo();
     this.usage = new MemoryUsageRepo();
     this.searchUsage = new MemorySearchUsageRepo();
+    this.performance = new MemoryPerformanceRepo();
     this.cache = new MemoryCacheRepo();
     this.accountModelBackoffs = new MemoryAccountModelBackoffRepo();
     this.searchConfig = new MemorySearchConfigRepo();

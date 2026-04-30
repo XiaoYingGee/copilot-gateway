@@ -25,6 +25,11 @@ import {
 import { toInternalDebugError } from "../../shared/errors/internal-debug-error.ts";
 import type { ProtocolFrame } from "../../shared/stream/types.ts";
 import { withAccountFallback } from "../../../shared/account-pool/fallback.ts";
+import {
+  type PerformanceTelemetryContext,
+  runtimeLocationFromRequest,
+} from "../../../../lib/performance-telemetry.ts";
+import { backgroundSchedulerFromContext } from "../../../../lib/background.ts";
 
 const withTranslatedEvents = <T>(
   result: StreamExecuteResult<T>,
@@ -36,15 +41,19 @@ const withTranslatedEvents = <T>(
     ? { ...result, events: translate(result.events) }
     : result;
 
-const withUsageModel = <T>(
+const withResultMetadata = <T>(
   result: StreamExecuteResult<T>,
   usageModel: string,
+  performance: PerformanceTelemetryContext,
 ): StreamExecuteResult<T> =>
-  result.type === "events" ? { ...result, usageModel } : result;
+  result.type === "events"
+    ? { ...result, usageModel, performance }
+    : { ...result, performance };
 
 export const serveChatCompletions = async (
   c: Context,
 ): Promise<Response> => {
+  let lastPerformance: PerformanceTelemetryContext | undefined;
   try {
     const payload = await c.req.json<ChatCompletionsPayload>();
     normalizeChatRequest(payload);
@@ -53,8 +62,25 @@ export const serveChatCompletions = async (
     const includeUsageChunk = payload.stream_options?.include_usage === true;
     const apiKeyId = c.get("apiKeyId") as string | undefined;
     const wantsStream = payload.stream === true;
+    const runtimeLocation = runtimeLocationFromRequest(c.req.raw);
+    const scheduleBackground = backgroundSchedulerFromContext(c);
     const intent = chatModelResolutionIntent(payload);
     const modelId = await resolveModelForRequest(payload.model, intent);
+    const performanceFor = (
+      model: string,
+      targetApi: PerformanceTelemetryContext["targetApi"],
+    ): PerformanceTelemetryContext => {
+      lastPerformance = {
+        keyId: apiKeyId ?? "unknown",
+        model,
+        sourceApi: "chat-completions",
+        targetApi,
+        stream: wantsStream,
+        runtimeLocation,
+      };
+      return lastPerformance;
+    };
+    performanceFor(modelId, "chat-completions");
 
     const result = await withAccountFallback(
       modelId,
@@ -69,49 +95,71 @@ export const serveChatCompletions = async (
         const plan = planChatRequest(attemptPayload, capabilities);
 
         if (plan.target === "messages") {
+          performanceFor(attemptPayload.model, "messages");
           const targetPayload = await buildMessagesTargetRequest(
             attemptPayload,
           );
+          const performance = performanceFor(targetPayload.model, "messages");
           const result = await emitToMessages({
             sourceApi: "chat-completions",
             payload: targetPayload,
             githubToken: account.token,
             accountType: account.accountType,
             apiKeyId,
+            clientStream: wantsStream,
+            runtimeLocation,
+            scheduleBackground,
             fetchOptions: plan.fetchOptions,
           });
 
-          return withUsageModel(
+          return withResultMetadata(
             withTranslatedEvents(result, translateMessagesToSourceEvents),
             targetPayload.model,
+            performance,
           );
         }
 
         if (plan.target === "responses") {
+          performanceFor(attemptPayload.model, "responses");
           const targetPayload = buildResponsesTargetRequest(attemptPayload);
+          const performance = performanceFor(targetPayload.model, "responses");
           const result = await emitToResponses({
             sourceApi: "chat-completions",
             payload: targetPayload,
             githubToken: account.token,
             accountType: account.accountType,
+            apiKeyId,
+            clientStream: wantsStream,
+            runtimeLocation,
+            scheduleBackground,
             fetchOptions: plan.fetchOptions,
           });
 
-          return withUsageModel(
+          return withResultMetadata(
             withTranslatedEvents(result, translateResponsesToSourceEvents),
             targetPayload.model,
+            performance,
           );
         }
 
-        return withUsageModel(
+        const performance = performanceFor(
+          attemptPayload.model,
+          "chat-completions",
+        );
+        return withResultMetadata(
           await emitToChatCompletions({
             sourceApi: "chat-completions",
             payload: attemptPayload,
             githubToken: account.token,
             accountType: account.accountType,
+            apiKeyId,
+            clientStream: wantsStream,
+            runtimeLocation,
+            scheduleBackground,
             fetchOptions: plan.fetchOptions,
           }),
           attemptPayload.model,
+          performance,
         );
       },
     );
@@ -125,7 +173,11 @@ export const serveChatCompletions = async (
   } catch (error) {
     return await respondChatCompletions(
       c,
-      internalErrorResult(502, toInternalDebugError(error, "chat-completions")),
+      internalErrorResult(
+        502,
+        toInternalDebugError(error, "chat-completions"),
+        lastPerformance,
+      ),
       false,
       false,
     );

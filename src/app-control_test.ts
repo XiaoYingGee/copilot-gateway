@@ -218,3 +218,50 @@ Deno.test("/api/token-usage can include all key metadata for stable dashboard co
     },
   ]);
 });
+
+Deno.test("/api/token-usage merges Claude variants into backend base model records", async () => {
+  const { repo, apiKey } = await setupAppTest();
+  const shared = {
+    keyId: apiKey.id,
+    hour: "2026-03-17T10",
+    requests: 1,
+    inputTokens: 10,
+    outputTokens: 5,
+    cacheReadTokens: 2,
+    cacheCreationTokens: 1,
+  };
+
+  await repo.usage.set({ ...shared, model: "claude-opus-4.7" });
+  await repo.usage.set({ ...shared, model: "claude-opus-4.7-xhigh" });
+  await repo.usage.set({ ...shared, model: "claude-opus-4.7-1m-internal" });
+  await repo.usage.set({
+    ...shared,
+    model: "gpt-5.3-codex",
+    inputTokens: 3,
+    outputTokens: 4,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+  });
+
+  const response = await requestApp(
+    "/api/token-usage?start=2026-03-17T00&end=2026-03-18T00",
+    { headers: { "x-api-key": apiKey.key } },
+  );
+
+  assertEquals(response.status, 200);
+  const body = await response.json();
+  assertEquals(body.length, 2);
+  const opus = body.find((record: { model: string }) =>
+    record.model === "claude-opus-4-7"
+  );
+  const gpt = body.find((record: { model: string }) =>
+    record.model === "gpt-5.3-codex"
+  );
+  assertExists(opus);
+  assertExists(gpt);
+  assertEquals(opus.requests, 3);
+  assertEquals(opus.inputTokens, 30);
+  assertEquals(opus.outputTokens, 15);
+  assertEquals(opus.cacheReadTokens, 6);
+  assertEquals(opus.cacheCreationTokens, 3);
+});
