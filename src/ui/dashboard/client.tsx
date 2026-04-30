@@ -229,12 +229,37 @@ export function dashboardAssets() {
 
               const CLAUDE_TIER = { opus: 0, sonnet: 1, haiku: 2 };
 
-              // Display form for Claude model IDs: turn "claude-opus-4.7" into "claude-opus-4-7"
-              // to match Anthropic's canonical dashed versioning. The backend normalizes
-              // it back on entry.
-              function substituteModelName(id) {
+              const CLAUDE_VARIANT_SUFFIX = /-(?:high|xhigh|1m(?:-internal)?)$/;
+              const CLAUDE_DATE_SUFFIX = /-\\d{8}$/;
+
+              function claudeUpstreamSyntax(id) {
+                return id.replace(/-(\\d+)-(\\d+)(?=-|$)/g, '-$1.$2');
+              }
+
+              function claudeBaseModelId(id) {
                 if (!id || !id.startsWith('claude-')) return id;
-                return id.replace(/(\\d)\\.(\\d)/g, '$1-$2');
+                const upstream = claudeUpstreamSyntax(id).replace(CLAUDE_DATE_SUFFIX, '');
+                return upstream.replace(CLAUDE_VARIANT_SUFFIX, '');
+              }
+
+              function claudeDisplayModelId(id) {
+                return claudeBaseModelId(id).replace(/(\\d)\\.(\\d)/g, '$1-$2');
+              }
+
+              function usageModelName(id) {
+                return id?.startsWith('claude-') ? claudeDisplayModelId(id) : id;
+              }
+
+              function configModelName(id) {
+                return id?.startsWith('claude-') ? claudeDisplayModelId(id) : id;
+              }
+
+              function modelContextWindow(model) {
+                const limits = model.capabilities?.limits;
+                const explicit = limits?.max_context_window_tokens || 0;
+                const total = (limits?.max_prompt_tokens || 0) + (limits?.max_output_tokens || 0);
+                const suffix = /-1m(?:-|$)/.test(model.id) ? 1000000 : 0;
+                return Math.max(explicit, total, suffix);
               }
 
               function claudeTier(id) {
@@ -452,16 +477,7 @@ export function dashboardAssets() {
                     },
 
                     claudeCodeSnippet() {
-                      // Claude Code uses a client-side [1m] suffix to enable 1M context window.
-                      // CC strips it before sending the model name to the API via
-                      // normalizeModelStringForAPI() (src/utils/model/model.ts), so the
-                      // gateway never sees it. The suffix triggers two client-side effects:
-                      //   1. getContextWindowForModel() returns 1_000_000 (src/utils/context.ts)
-                      //   2. "context-1m-2025-08-07" beta header is added (src/utils/betas.ts)
-                      //      (the gateway filters this out — Copilot API doesn't support it)
-                      const force1m = ['claude-opus-4-7'];
                       const addCtx = (id) => {
-                        if (force1m.includes(id)) return id + '[1m]';
                         const p = this.claudeContextMap[id];
                         return p >= 1000000 ? id + '[1m]' : id;
                       };
@@ -568,10 +584,7 @@ export function dashboardAssets() {
                           return;
                         }
                         const { data: rawData } = await resp.json();
-                        const seen = new Set();
-                        const data = rawData
-                          .map((m) => ({ ...m, id: substituteModelName(m.id) }))
-                          .filter((m) => !seen.has(m.id) && seen.add(m.id));
+                        const data = rawData;
 
                           this.allModels = data;
                           if (!this.chatModelId) {
@@ -579,16 +592,18 @@ export function dashboardAssets() {
                             if (first) this.chatModelId = first.id;
                           }
 
-                          const claudeFiltered = data
+                            const claudeFiltered = data
                             .filter((m) => m.id.startsWith('claude-') && m.supported_endpoints?.includes('/v1/messages'));
 
-                            const claudeAll = claudeFiltered.map((m) => m.id);
+                            const claudeContextByModel = new Map();
                             this.claudeContextMap = {};
                             for (const m of claudeFiltered) {
-                              const limits = m.capabilities?.limits;
-                              const total = (limits?.max_prompt_tokens || 0) + (limits?.max_output_tokens || 0);
-                              if (total) this.claudeContextMap[m.id] = total;
+                              const id = configModelName(m.id);
+                              const total = modelContextWindow(m);
+                              claudeContextByModel.set(id, Math.max(total, claudeContextByModel.get(id) || 0));
                             }
+                            this.claudeContextMap = Object.fromEntries(claudeContextByModel);
+                            const claudeAll = [...claudeContextByModel.keys()];
 
                             this.claudeModelsBig = [...claudeAll].sort(sortClaudeBig);
                             this.claudeModelsSonnet = [...claudeAll].sort(sortClaudeSonnet);
@@ -597,9 +612,9 @@ export function dashboardAssets() {
                             this.claudeSonnetModel = this.claudeModelsSonnet[0] || '';
                             this.claudeSmallModel = this.claudeModelsSmall[0] || '';
 
-                            this.codexModels = data
+                            this.codexModels = [...new Set(data
                               .filter((m) => m.supported_endpoints?.includes('/responses'))
-                              .map((m) => m.id)
+                              .map((m) => configModelName(m.id)))]
                               .sort(sortCodex);
                             this.codexModel = this.codexModels[0] || '';
 
@@ -1161,7 +1176,7 @@ export function dashboardAssets() {
                             const bucket = isDaily ? this.localDateKey(utc) : this.localHourKey(utc);
                             if (!agg.has(bucket)) continue;
                             const m = agg.get(bucket);
-                            const val = dimension === 'model' ? substituteModelName(r.model) : r[dimension];
+                            const val = dimension === 'model' ? usageModelName(r.model) : r[dimension];
                             if (!isTokenChartPercentMetric(metric)) {
                               m.set(val, (m.get(val) || 0) + tokenChartMetricRecordValue(r, metric));
                             }
@@ -1235,7 +1250,7 @@ export function dashboardAssets() {
                         },
 
                         updateSummary() {
-                          const filtered = this.tokenData.filter((r) => !this.hiddenKeys.has(r.keyId) && !this.hiddenModels.has(substituteModelName(r.model)));
+                          const filtered = this.tokenData.filter((r) => !this.hiddenKeys.has(r.keyId) && !this.hiddenModels.has(usageModelName(r.model)));
                           let totalReqs = 0, totalIn = 0, totalOut = 0, totalCR = 0, totalCC = 0;
                           for (const r of filtered) {
                             totalReqs += r.requests;
@@ -1260,7 +1275,7 @@ export function dashboardAssets() {
                           const bucketKeysArr = [...bucketMap.keys()];
 
                           if (_charts.key) {
-                            const filtered = this.tokenData.filter((r) => !this.hiddenModels.has(substituteModelName(r.model)));
+                            const filtered = this.tokenData.filter((r) => !this.hiddenModels.has(usageModelName(r.model)));
                             const { agg, detail } = this.aggregateBuckets(filtered, 'keyId');
                             _detailMaps.key = detail;
                             this.applyTokenChartMetricOptions(_charts.key);
@@ -1338,7 +1353,7 @@ export function dashboardAssets() {
                             keyMetaMap.set(r.keyId, { name: r.keyName, createdAt: r.keyCreatedAt ?? keyMetaMap.get(r.keyId)?.createdAt });
                             allKeyIds.add(r.keyId);
                             allKeyIdsForOrder.add(r.keyId);
-                            allModels.add(substituteModelName(r.model));
+                            allModels.add(usageModelName(r.model));
                           }
                           const activeSearchUsageData = this.searchUsageData.filter((r) => r.provider === this.searchUsageActiveProvider);
                           for (const r of activeSearchUsageData) {
@@ -1360,7 +1375,7 @@ export function dashboardAssets() {
                           _detailMaps.searchKey = searchKeyDetail;
 
                           const keyList = usageKeyChartEntries([...allKeyIds], keyMetaMap, [...allKeyIdsForOrder], this.tokenKeyColorOrder);
-                          const modelList = usageModelChartEntries([...allModels], this.allModels.map((m) => m.id));
+                          const modelList = usageModelChartEntries([...allModels], this.allModels.map((m) => usageModelName(m.id)));
                           const searchKeyList = usageKeyChartEntries([...allSearchKeyIds], keyMetaMap, [...allSearchKeyIdsForOrder], this.searchUsageKeyColorOrder);
 
                           const keyDatasets = keyList.map(({ keyId, colorSlot }) => {

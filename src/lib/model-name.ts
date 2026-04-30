@@ -1,9 +1,6 @@
-// Display/normalization for model names.
-// Copilot's upstream uses dot-separated versions for Claude models
-// (e.g. "claude-opus-4.7"), but Anthropic's canonical form uses dashes
-// (e.g. "claude-opus-4-7"). The dashboard UI displays/generates the dashed
-// form (see substituteModelName in src/ui/dashboard/client.tsx), and this
-// function normalizes that alias back to the dotted form at the API entry.
+// Low-level Claude syntax helpers. The LLM compatibility resolver owns route-time
+// model selection; this module only converts dashed Claude version aliases into
+// Copilot's dotted upstream form for lookup/fallback paths.
 
 const CLAUDE_MINOR_VERSION_DATE_SUFFIX = /^(.*(?:\d+\.\d+|\d+-\d+))-\d{8}$/;
 

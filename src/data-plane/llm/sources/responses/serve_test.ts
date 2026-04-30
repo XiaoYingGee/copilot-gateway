@@ -308,6 +308,82 @@ Deno.test("/v1/responses direct mode synthesizes full Responses SSE when upstrea
   });
 });
 
+Deno.test("/v1/responses resolves Claude reasoning variants before planning", async () => {
+  const { apiKey } = await setupAppTest();
+
+  let upstreamBody: Record<string, unknown> | undefined;
+
+  await withMockedFetch(async (request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        {
+          id: "claude-opus-4.7",
+          supported_endpoints: ["/responses"],
+          reasoningEfforts: ["medium"],
+        },
+        {
+          id: "claude-opus-4.7-xhigh",
+          supported_endpoints: ["/responses"],
+          reasoningEfforts: ["xhigh"],
+        },
+      ]));
+    }
+    if (url.pathname === "/responses") {
+      upstreamBody = JSON.parse(await request.text()) as Record<
+        string,
+        unknown
+      >;
+      return jsonResponse({
+        id: "resp_claude_variant",
+        object: "response",
+        model: "claude-opus-4.7-xhigh",
+        status: "completed",
+        output_text: "ok",
+        output: [{
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "ok" }],
+        }],
+        usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp("/v1/responses", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+      },
+      body: JSON.stringify({
+        model: "claude-opus-4-7",
+        input: [{ type: "message", role: "user", content: "Hi" }],
+        reasoning: { effort: "xhigh" },
+        max_output_tokens: 32,
+        stream: false,
+      }),
+    });
+
+    assertEquals(response.status, 200);
+    assertEquals((await response.json()).output_text, "ok");
+  });
+
+  assertEquals(upstreamBody?.model, "claude-opus-4.7-xhigh");
+});
+
 Deno.test("/v1/responses direct mode retries connection-bound input item IDs once with a rewritten ID", async () => {
   const { apiKey } = await setupAppTest();
 

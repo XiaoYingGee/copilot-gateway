@@ -6,6 +6,10 @@ import type {
 import { normalizeMessagesRequest } from "./normalize/request.ts";
 import { planMessagesRequest } from "./plan.ts";
 import { getModelCapabilities } from "../../shared/models/get-model-capabilities.ts";
+import {
+  messagesModelResolutionIntent,
+  resolveModelForRequest,
+} from "../../shared/models/resolve-model.ts";
 import { buildTargetRequest as buildChatTargetRequest } from "../../translate/messages-via-chat-completions/build-target-request.ts";
 import { buildTargetRequest as buildResponsesTargetRequest } from "../../translate/messages-via-responses/build-target-request.ts";
 import { emitToMessages } from "../../targets/messages/emit.ts";
@@ -47,18 +51,20 @@ export const serveMessages = async (
     const apiKeyId = c.get("apiKeyId") as string | undefined;
     const wantsStream = payload.stream === true;
     const rawBeta = c.req.header("anthropic-beta");
+    const intent = messagesModelResolutionIntent(payload, rawBeta);
+    const modelId = await resolveModelForRequest(payload.model, intent);
 
     const result = await withAccountFallback(
-      payload.model,
+      modelId,
       async ({ account }) => {
         const attemptPayload = structuredClone(payload);
+        attemptPayload.model = modelId;
         const capabilities = await getModelCapabilities(
-          attemptPayload.model,
+          modelId,
           account.token,
           account.accountType,
         );
         const plan = planMessagesRequest(attemptPayload, capabilities, rawBeta);
-        attemptPayload.model = capabilities.model?.id ?? attemptPayload.model;
 
         if (plan.target === "messages") {
           return withUsageModel(

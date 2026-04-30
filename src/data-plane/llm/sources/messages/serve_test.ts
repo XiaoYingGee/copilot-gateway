@@ -755,6 +755,78 @@ Deno.test("/v1/messages keeps caller thinking and tool_choice unchanged on nativ
   assertEquals(upstreamBeta, null);
 });
 
+Deno.test("/v1/messages resolves base Claude models to effort variants before planning", async () => {
+  const { apiKey } = await setupAppTest();
+
+  let upstreamBody: Record<string, unknown> | undefined;
+
+  await withMockedFetch(async (request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        {
+          id: "claude-opus-4.7",
+          supported_endpoints: ["/v1/messages"],
+          reasoningEfforts: ["medium"],
+        },
+        {
+          id: "claude-opus-4.7-xhigh",
+          supported_endpoints: ["/v1/messages"],
+          reasoningEfforts: ["xhigh"],
+        },
+      ]));
+    }
+    if (url.pathname === "/v1/messages") {
+      upstreamBody = JSON.parse(await request.text()) as Record<
+        string,
+        unknown
+      >;
+      return jsonResponse({
+        id: "msg_effort_variant",
+        type: "message",
+        role: "assistant",
+        content: [{ type: "text", text: "ok" }],
+        model: "claude-opus-4.7-xhigh",
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 1, output_tokens: 1 },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp("/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+      },
+      body: JSON.stringify({
+        model: "claude-opus-4-7",
+        max_tokens: 64,
+        output_config: { effort: "xhigh" },
+        messages: [{ role: "user", content: "Hi" }],
+      }),
+    });
+
+    assertEquals(response.status, 200);
+    await response.json();
+  });
+
+  assertEquals(upstreamBody?.model, "claude-opus-4.7-xhigh");
+});
+
 Deno.test("/v1/messages native streaming filters trailing DONE sentinel", async () => {
   const { apiKey } = await setupAppTest();
 

@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 import {
+  copilotModels,
   jsonResponse,
   requestApp,
   setupAppTest,
@@ -76,4 +77,53 @@ Deno.test("/messages/count_tokens aliases /v1/messages/count_tokens", async () =
     assertEquals(await response.json(), { input_tokens: 24 });
     assertEquals(capturedPath, "/v1/messages/count_tokens");
   });
+});
+
+Deno.test("/v1/messages/count_tokens resolves Claude compatibility models before proxying", async () => {
+  const { apiKey } = await setupAppTest();
+  let upstreamBody: Record<string, unknown> | undefined;
+
+  await withMockedFetch(async (req) => {
+    const url = new URL(req.url);
+    if (url.hostname === "api.github.com") return copilotTokenResponse();
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        { id: "claude-opus-4.7", supported_endpoints: ["/v1/messages"] },
+        {
+          id: "claude-opus-4.7-1m-internal",
+          supported_endpoints: ["/v1/messages"],
+          maxContextWindowTokens: 1_000_000,
+          maxPromptTokens: 936_000,
+          maxOutputTokens: 64_000,
+        },
+      ]));
+    }
+    if (url.pathname === "/v1/messages/count_tokens") {
+      upstreamBody = JSON.parse(await req.text()) as Record<string, unknown>;
+      return jsonResponse({ input_tokens: 64 });
+    }
+    throw new Error(`Unhandled fetch ${req.url}`);
+  }, async () => {
+    const response = await requestApp("/v1/messages/count_tokens", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+        "anthropic-beta": "context-1m-2025-08-07",
+      },
+      body: JSON.stringify({
+        model: "claude-opus-4-7",
+        max_tokens: 64,
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    assertEquals(response.status, 200);
+    assertEquals(await response.json(), { input_tokens: 64 });
+  });
+
+  assertEquals(upstreamBody?.model, "claude-opus-4.7-1m-internal");
 });

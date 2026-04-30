@@ -161,6 +161,81 @@ Deno.test("usage middleware records resolved model after dated Claude alias fall
   assertEquals(usage[0].model, "claude-haiku-4.5");
 });
 
+Deno.test("usage middleware records Claude compatibility variant selected for upstream", async () => {
+  const { repo, apiKey } = await setupAppTest();
+
+  await withMockedFetch(async (request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        {
+          id: "claude-opus-4.7",
+          supported_endpoints: ["/v1/messages"],
+          reasoningEfforts: ["medium"],
+        },
+        {
+          id: "claude-opus-4.7-1m-internal",
+          supported_endpoints: ["/v1/messages"],
+          reasoningEfforts: ["low", "medium", "high", "xhigh"],
+          maxContextWindowTokens: 1_000_000,
+          maxPromptTokens: 936_000,
+          maxOutputTokens: 64_000,
+        },
+      ]));
+    }
+    if (url.pathname === "/v1/messages") {
+      const body = JSON.parse(await request.text()) as Record<string, unknown>;
+      assertEquals(body.model, "claude-opus-4.7-1m-internal");
+      return jsonResponse({
+        id: "msg_1m_usage",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-4.7",
+        content: [{ type: "text", text: "ok" }],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 7, output_tokens: 3 },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp("/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+        "anthropic-beta": "context-1m-2025-08-07",
+      },
+      body: JSON.stringify({
+        model: "claude-opus-4-7",
+        max_tokens: 64,
+        messages: [{ role: "user", content: "Hi" }],
+      }),
+    });
+
+    assertEquals(response.status, 200);
+    await response.json();
+  });
+
+  await flushAsyncWork();
+
+  const usage = await repo.usage.listAll();
+  assertEquals(usage.length, 1);
+  assertEquals(usage[0].model, "claude-opus-4.7-1m-internal");
+});
+
 Deno.test("usage middleware records resolved model instead of upstream response model", async () => {
   const { repo, apiKey } = await setupAppTest();
 

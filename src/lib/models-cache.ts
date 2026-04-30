@@ -20,6 +20,8 @@ export interface ModelInfo {
     family: string;
     type: string;
     limits: {
+      max_context_window_tokens?: number;
+      max_non_streaming_output_tokens?: number;
       max_prompt_tokens?: number;
       max_output_tokens?: number;
     };
@@ -29,6 +31,7 @@ export interface ModelInfo {
       streaming?: boolean;
       vision?: boolean;
       adaptive_thinking?: boolean;
+      reasoning_effort?: string[];
     };
   };
   supported_endpoints?: string[];

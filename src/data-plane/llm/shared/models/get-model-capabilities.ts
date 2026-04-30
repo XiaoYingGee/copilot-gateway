@@ -1,4 +1,4 @@
-import { findModel } from "../../../../lib/models-cache.ts";
+import { findModel, type ModelInfo } from "../../../../lib/models-cache.ts";
 
 interface ModelCapabilitiesModel {
   id: string;
@@ -22,12 +22,9 @@ export interface ModelCapabilities {
   supportsAdaptiveThinking: boolean;
 }
 
-export const getModelCapabilities = async (
-  modelId: string,
-  githubToken: string,
-  accountType: string,
-): Promise<ModelCapabilities> => {
-  const model = await findModel(modelId, githubToken, accountType);
+export const modelCapabilitiesFromModel = (
+  model: ModelInfo | undefined,
+): ModelCapabilities => {
   const supportedEndpoints = model?.supported_endpoints ?? [];
 
   return {
@@ -39,4 +36,13 @@ export const getModelCapabilities = async (
     supportsAdaptiveThinking:
       model?.capabilities?.supports?.adaptive_thinking === true,
   };
+};
+
+export const getModelCapabilities = async (
+  modelId: string,
+  githubToken: string,
+  accountType: string,
+): Promise<ModelCapabilities> => {
+  const model = await findModel(modelId, githubToken, accountType);
+  return modelCapabilitiesFromModel(model);
 };

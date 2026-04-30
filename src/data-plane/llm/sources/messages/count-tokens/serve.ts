@@ -3,26 +3,32 @@ import {
   copilotFetch,
   isCopilotTokenFetchError,
 } from "../../../../../lib/copilot.ts";
-import { normalizeModelName } from "../../../../../lib/model-name.ts";
 import type { MessagesPayload } from "../../../../../lib/messages-types.ts";
 import { withAccountFallback } from "../../../../shared/account-pool/fallback.ts";
+import {
+  messagesModelResolutionIntent,
+  resolveModelForRequest,
+} from "../../../shared/models/resolve-model.ts";
 
 export const countTokens = async (c: Context) => {
   try {
     const payload = await c.req.json<MessagesPayload>();
-    if (typeof payload.model === "string") {
-      payload.model = normalizeModelName(payload.model);
-    }
+    const rawBeta = c.req.header("anthropic-beta");
+    const intent = messagesModelResolutionIntent(payload, rawBeta);
+    const modelId = await resolveModelForRequest(payload.model, intent);
 
     const resp = await withAccountFallback(
-      payload.model,
-      ({ account }) =>
-        copilotFetch(
+      modelId,
+      ({ account }) => {
+        const attemptPayload = structuredClone(payload);
+        attemptPayload.model = modelId;
+        return copilotFetch(
           "/v1/messages/count_tokens",
-          { method: "POST", body: JSON.stringify(payload) },
+          { method: "POST", body: JSON.stringify(attemptPayload) },
           account.token,
           account.accountType,
-        ),
+        );
+      },
     );
 
     return new Response(resp.body, {

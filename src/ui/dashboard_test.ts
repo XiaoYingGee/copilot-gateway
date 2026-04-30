@@ -677,7 +677,7 @@ Deno.test("dashboardApp keeps model colors on known model-id slots when earlier 
 
 Deno.test("dashboardApp aligns dotted Claude usage IDs with dashed model metadata slots", () => {
   const { app, charts } = createDashboardHarness();
-  app.allModels = [{ id: "claude-opus-4-7" }, { id: "claude-sonnet-4-7" }];
+  app.allModels = [{ id: "claude-opus-4.7" }, { id: "claude-sonnet-4.7" }];
   app.tokenData = [
     usageRecord(0, {
       model: "claude-sonnet-4.7",
@@ -690,6 +690,164 @@ Deno.test("dashboardApp aligns dotted Claude usage IDs with dashed model metadat
   assertEquals(modelChart.data.datasets[0]._model, "claude-sonnet-4-7");
   assertEquals(modelChart.data.datasets[0].borderColor, "#00e676");
   assertEquals(modelChart.data.datasets[0].backgroundColor, "#00e67640");
+});
+
+Deno.test("dashboardApp merges Claude usage variants into dashed base model totals", () => {
+  const { app, charts } = createDashboardHarness();
+  app.allModels = [
+    { id: "claude-opus-4.7" },
+    { id: "claude-opus-4.7-xhigh" },
+    { id: "claude-opus-4.7-1m-internal" },
+  ];
+  app.tokenData = [
+    usageRecord(0, {
+      model: "claude-opus-4.7",
+      inputTokens: 2,
+      outputTokens: 3,
+    }),
+    usageRecord(0, {
+      model: "claude-opus-4.7-xhigh",
+      inputTokens: 5,
+      outputTokens: 7,
+    }),
+    usageRecord(0, {
+      model: "claude-opus-4.7-1m-internal",
+      inputTokens: 11,
+      outputTokens: 13,
+    }),
+  ];
+
+  app.renderTokenCharts();
+
+  const modelChart = charts[1];
+  assertEquals(modelChart.data.datasets.length, 1);
+  assertEquals(modelChart.data.datasets[0]._model, "claude-opus-4-7");
+  assertEquals(
+    modelChart.data.datasets[0].data.filter((value) => value !== 0),
+    [41],
+  );
+});
+
+Deno.test("dashboardApp keeps raw models for playground while Claude Code choices are merged bases", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (input) => {
+    const url = String(input);
+    if (url.startsWith("/api/models")) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "claude-opus-4.7",
+                name: "Claude Opus 4.7",
+                model_picker_enabled: true,
+                capabilities: {
+                  type: "chat",
+                  limits: {
+                    max_prompt_tokens: 168000,
+                    max_output_tokens: 32000,
+                  },
+                },
+                supported_endpoints: ["/v1/messages"],
+              },
+              {
+                id: "claude-opus-4.7-xhigh",
+                name: "Claude Opus 4.7 xhigh",
+                model_picker_enabled: true,
+                capabilities: {
+                  type: "chat",
+                  limits: {
+                    max_prompt_tokens: 168000,
+                    max_output_tokens: 32000,
+                  },
+                },
+                supported_endpoints: ["/v1/messages"],
+              },
+              {
+                id: "claude-opus-4.7-1m-internal",
+                name: "Claude Opus 4.7 1M",
+                model_picker_enabled: true,
+                capabilities: {
+                  type: "chat",
+                  limits: {},
+                },
+                supported_endpoints: ["/v1/messages"],
+              },
+              {
+                id: "claude-sonnet-4.7",
+                name: "Claude Sonnet 4.7",
+                model_picker_enabled: true,
+                capabilities: { type: "chat", limits: {} },
+                supported_endpoints: ["/responses"],
+              },
+              {
+                id: "claude-sonnet-4.7-xhigh",
+                name: "Claude Sonnet 4.7 xhigh",
+                model_picker_enabled: true,
+                capabilities: { type: "chat", limits: {} },
+                supported_endpoints: ["/responses"],
+              },
+              {
+                id: "claude-sonnet-4.7-1m-internal",
+                name: "Claude Sonnet 4.7 1M",
+                model_picker_enabled: true,
+                capabilities: { type: "chat", limits: {} },
+                supported_endpoints: ["/responses"],
+              },
+              {
+                id: "gpt-5.5",
+                name: "GPT 5.5",
+                model_picker_enabled: true,
+                capabilities: { type: "chat", limits: {} },
+                supported_endpoints: ["/responses"],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+
+  try {
+    const { app } = createDashboardHarness();
+    await app.loadModels();
+
+    assertEquals(app.allModels.map((m: { id: string }) => m.id), [
+      "claude-opus-4.7",
+      "claude-opus-4.7-xhigh",
+      "claude-opus-4.7-1m-internal",
+      "claude-sonnet-4.7",
+      "claude-sonnet-4.7-xhigh",
+      "claude-sonnet-4.7-1m-internal",
+      "gpt-5.5",
+    ]);
+    assertEquals(
+      app.filteredChatModels
+        .filter((m: { _divider?: boolean }) => !m._divider)
+        .map((m: { id: string }) => m.id),
+      [
+        "claude-opus-4.7",
+        "claude-opus-4.7-xhigh",
+        "claude-opus-4.7-1m-internal",
+        "claude-sonnet-4.7",
+        "claude-sonnet-4.7-xhigh",
+        "claude-sonnet-4.7-1m-internal",
+        "gpt-5.5",
+      ],
+    );
+    assertEquals(app.claudeModelsBig, ["claude-opus-4-7"]);
+    assertEquals(app.codexModels, ["gpt-5.5", "claude-sonnet-4-7"]);
+    app.codexModel = "claude-sonnet-4-7";
+    assertStringIncludes(app.codexSnippet(), 'model = "claude-sonnet-4-7"');
+    assertStringIncludes(
+      app.claudeCodeSnippet(),
+      "ANTHROPIC_MODEL=claude-opus-4-7[1m]",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 Deno.test("dashboardApp waits for model metadata before first usage chart render", async () => {
@@ -787,7 +945,10 @@ Deno.test("DashboardPage usage summary metric focus styling only shows borders o
 Deno.test("DashboardPage renders mobile-friendly dashboard chrome", () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(html, "max-w-6xl mx-auto px-4 sm:px-6 pt-4 sm:pt-5 pb-8");
+  assertStringIncludes(
+    html,
+    "max-w-6xl mx-auto px-4 sm:px-6 pt-4 sm:pt-5 pb-8",
+  );
   assertStringIncludes(
     html,
     "order-3 flex w-full max-w-full gap-1 overflow-x-auto rounded-lg bg-surface-800 p-0.5 sm:order-none sm:w-fit",
@@ -805,10 +966,10 @@ Deno.test("DashboardPage renders mobile-friendly admin controls", () => {
     html,
     "flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center",
   );
-  assertStringIncludes(html, "aria-label=\"Copy API key\"");
-  assertStringIncludes(html, "aria-label=\"Rename API key\"");
-  assertStringIncludes(html, "aria-label=\"Rotate API key\"");
-  assertStringIncludes(html, "aria-label=\"Delete API key\"");
+  assertStringIncludes(html, 'aria-label="Copy API key"');
+  assertStringIncludes(html, 'aria-label="Rename API key"');
+  assertStringIncludes(html, 'aria-label="Rotate API key"');
+  assertStringIncludes(html, 'aria-label="Delete API key"');
   assertStringIncludes(html, "min-h-9 min-w-9");
 });
 
@@ -816,7 +977,7 @@ Deno.test("DashboardPage uses frontend-only selected GitHub account for quota di
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "selectedGithubAccountId: null");
-  assertStringIncludes(html, "@click=\"selectGithubAccount(acct.id)\"");
+  assertStringIncludes(html, '@click="selectGithubAccount(acct.id)"');
   assertStringIncludes(html, "selectedGithubAccountId === acct.id");
   assertStringIncludes(html, "'/api/copilot-quota?user_id='");
   assertStringIncludes(html, "async selectGithubAccount(userId)");
@@ -828,8 +989,8 @@ Deno.test("DashboardPage only shows GitHub account backoff status when models ar
 
   assertStringIncludes(html, 'x-show="hasUnavailableModels(acct)"');
   assertStringIncludes(html, "return count + ' backoff';");
-  assertStringIncludes(html, "x-text=\"unavailableBadgeText(acct)\"");
-  assertStringIncludes(html, "x-text=\"cooldownRecoveryText(status)\"");
+  assertStringIncludes(html, 'x-text="unavailableBadgeText(acct)"');
+  assertStringIncludes(html, 'x-text="cooldownRecoveryText(status)"');
   assertStringIncludes(html, "expiresAt > this.now");
   assertStringIncludes(html, "return 'in ' + this.cooldownRemaining(status);");
   assertStringIncludes(
@@ -848,7 +1009,10 @@ Deno.test("DashboardPage only shows GitHub account backoff status when models ar
 Deno.test("DashboardPage renders Settings import preview responsively", () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(html, "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4");
+  assertStringIncludes(
+    html,
+    "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4",
+  );
   assertStringIncludes(html, "flex flex-col gap-3 mb-4 sm:flex-row");
   assertFalse(html.includes("grid grid-cols-4 gap-3 mb-4"));
 });
@@ -865,7 +1029,9 @@ Deno.test("DashboardPage renders Models playground as a mobile stack", () => {
     "max-h-56 w-full shrink-0 border-b border-white/[0.06] flex flex-col lg:max-h-none lg:w-72 lg:border-b-0 lg:border-r",
   );
   assertFalse(
-    html.includes('style="height: calc(100vh - 140px); display: flex; overflow: hidden;"'),
+    html.includes(
+      'style="height: calc(100vh - 140px); display: flex; overflow: hidden;"',
+    ),
   );
 });
 

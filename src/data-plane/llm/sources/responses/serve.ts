@@ -3,6 +3,10 @@ import type { ResponsesPayload } from "../../../../lib/responses-types.ts";
 import { normalizeResponsesRequest } from "./normalize/request.ts";
 import { planResponsesRequest } from "./plan.ts";
 import { getModelCapabilities } from "../../shared/models/get-model-capabilities.ts";
+import {
+  resolveModelForRequest,
+  responsesModelResolutionIntent,
+} from "../../shared/models/resolve-model.ts";
 import { buildTargetRequest as buildMessagesTargetRequest } from "../../translate/responses-via-messages/build-target-request.ts";
 import { buildTargetRequest as buildChatCompletionsTargetRequest } from "../../translate/responses-via-chat-completions/build-target-request.ts";
 import { emitToResponses } from "../../targets/responses/emit.ts";
@@ -55,19 +59,21 @@ export const serveResponses = async (
     normalizeResponsesRequest(payload);
     const apiKeyId = c.get("apiKeyId") as string | undefined;
     const wantsStream = payload.stream === true;
+    const intent = responsesModelResolutionIntent(payload);
+    const modelId = await resolveModelForRequest(payload.model, intent);
 
     const result = await withAccountFallback<
       StreamExecuteResult<SourceResponseStreamEvent> | Response
-    >(payload.model, async ({ account }) => {
+    >(modelId, async ({ account }) => {
       const attemptPayload = structuredClone(payload);
+      attemptPayload.model = modelId;
       const capabilities = await getModelCapabilities(
-        attemptPayload.model,
+        modelId,
         account.token,
         account.accountType,
       );
       const plan = planResponsesRequest(attemptPayload, capabilities);
       if (!plan) return unsupportedResponsesModelResponse(attemptPayload.model);
-      attemptPayload.model = capabilities.model?.id ?? attemptPayload.model;
 
       if (plan.target === "responses") {
         return withUsageModel(

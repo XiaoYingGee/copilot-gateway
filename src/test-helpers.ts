@@ -1,6 +1,7 @@
 import { app } from "./app.ts";
 import { clearCopilotTokenCache } from "./lib/copilot.ts";
 import { initEnv } from "./lib/env.ts";
+import { clearModelsCache } from "./lib/models-cache.ts";
 import type { SearchConfig } from "./data-plane/tools/web-search/types.ts";
 import { InMemoryRepo } from "./repo/memory.ts";
 import { initRepo } from "./repo/index.ts";
@@ -30,7 +31,9 @@ interface SSEChunk {
 
 let fetchLock: Promise<void> = Promise.resolve();
 
-export async function setupAppTest(options: SetupOptions = {}): Promise<AppTestContext> {
+export async function setupAppTest(
+  options: SetupOptions = {},
+): Promise<AppTestContext> {
   const repo = new InMemoryRepo();
   initRepo(repo);
 
@@ -38,6 +41,7 @@ export async function setupAppTest(options: SetupOptions = {}): Promise<AppTestC
   initEnv((name) => name === "ADMIN_KEY" ? adminKey : "");
 
   await clearCopilotTokenCache();
+  clearModelsCache();
 
   const apiKey = options.apiKey ?? {
     id: `key_${crypto.randomUUID()}`,
@@ -104,7 +108,9 @@ export function sseResponse(chunks: SSEChunk[], status = 200): Response {
   const text = chunks.map((chunk) => {
     const lines: string[] = [];
     if (chunk.event) lines.push(`event: ${chunk.event}`);
-    const data = typeof chunk.data === "string" ? chunk.data : JSON.stringify(chunk.data);
+    const data = typeof chunk.data === "string"
+      ? chunk.data
+      : JSON.stringify(chunk.data);
     lines.push(`data: ${data}`);
     return lines.join("\n");
   }).join("\n\n") + "\n\n";
@@ -115,12 +121,19 @@ export function sseResponse(chunks: SSEChunk[], status = 200): Response {
   });
 }
 
-export async function requestApp(path: string, init: RequestInit): Promise<Response> {
+export async function requestApp(
+  path: string,
+  init: RequestInit,
+): Promise<Response> {
   return await app.request(path, init);
 }
 
-export function parseSSEText(text: string): Array<{ event: string; data: string }> {
-  const blocks = text.split("\n\n").map((block) => block.trim()).filter(Boolean);
+export function parseSSEText(
+  text: string,
+): Array<{ event: string; data: string }> {
+  const blocks = text.split("\n\n").map((block) => block.trim()).filter(
+    Boolean,
+  );
   return blocks.map((block) => {
     let event = "message";
     let data = "";
@@ -136,7 +149,17 @@ export async function flushAsyncWork(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-export function copilotModels(models: Array<{ id: string; supported_endpoints?: string[]; adaptiveThinking?: boolean }>) {
+export function copilotModels(
+  models: Array<{
+    id: string;
+    supported_endpoints?: string[];
+    adaptiveThinking?: boolean;
+    reasoningEfforts?: string[];
+    maxContextWindowTokens?: number;
+    maxPromptTokens?: number;
+    maxOutputTokens?: number;
+  }>,
+) {
   return {
     object: "list",
     data: models.map((model) => ({
@@ -148,9 +171,22 @@ export function copilotModels(models: Array<{ id: string; supported_endpoints?: 
       capabilities: {
         family: "test",
         type: "chat",
-        limits: {},
+        limits: {
+          ...(model.maxContextWindowTokens !== undefined
+            ? { max_context_window_tokens: model.maxContextWindowTokens }
+            : {}),
+          ...(model.maxPromptTokens !== undefined
+            ? { max_prompt_tokens: model.maxPromptTokens }
+            : {}),
+          ...(model.maxOutputTokens !== undefined
+            ? { max_output_tokens: model.maxOutputTokens }
+            : {}),
+        },
         supports: {
           adaptive_thinking: model.adaptiveThinking,
+          ...(model.reasoningEfforts !== undefined
+            ? { reasoning_effort: model.reasoningEfforts }
+            : {}),
         },
       },
     })),
