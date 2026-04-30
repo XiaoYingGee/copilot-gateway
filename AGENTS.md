@@ -236,14 +236,14 @@ Planning is the only layer allowed to make this routing decision.
 
 Claude compatibility model-name routing happens before account fallback in
 `src/data-plane/llm/shared/models/resolve-model.ts`. The resolver strips Claude
-date aliases, normalizes dashed version aliases to Copilot's dotted upstream IDs,
-and may choose a real upstream variant such as `-1m` or `-xhigh` from `/models`
-and request intent. It returns one final upstream model ID; account fallback then
-uses that ID for eligibility, backoff, and attempts without re-resolving it. The
-gateway treats a model ID as a global upstream contract: if multiple accounts
-expose the same ID, their capability metadata is expected to describe the same
-model. Account differences are visibility/backoff concerns, not per-account
-capability variants for the same ID.
+date aliases, normalizes dashed version aliases to Copilot's dotted upstream
+IDs, and may choose a real upstream variant such as `-1m` or `-xhigh` from
+`/models` and request intent. It returns one final upstream model ID; account
+fallback then uses that ID for eligibility, backoff, and attempts without
+re-resolving it. The gateway treats a model ID as a global upstream contract: if
+multiple accounts expose the same ID, their capability metadata is expected to
+describe the same model. Account differences are visibility/backoff concerns,
+not per-account capability variants for the same ID.
 
 ## Data Plane Workarounds
 
@@ -375,6 +375,7 @@ Copilot gateway implementations:
 - `https://github.com/caozhiyuan/copilot-api`
 - `https://github.com/StarryKira/copilot2api-go`
 - `https://github.com/messense/copilot-api-proxy`
+- `https://github.com/san-tian/copilot-pool-gateway`
 
 General LLM gateway implementations:
 

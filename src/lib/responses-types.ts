@@ -31,7 +31,8 @@ export type ResponseInputItem =
   | ResponseInputMessage
   | ResponseFunctionToolCallItem
   | ResponseFunctionCallOutputItem
-  | ResponseInputReasoning;
+  | ResponseInputReasoning
+  | ResponseItemReference;
 
 export interface ResponseInputMessage {
   type: "message";
@@ -74,6 +75,11 @@ interface ResponseFunctionCallOutputItem {
   call_id: string;
   output: string;
   status?: "completed" | "incomplete";
+}
+
+export interface ResponseItemReference {
+  type: "item_reference";
+  id: string;
 }
 
 export interface ResponseTool {

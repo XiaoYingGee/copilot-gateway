@@ -239,6 +239,10 @@ export const translateResponsesToChatCompletions = (
         continue;
       }
 
+      // item_reference items are connection-bound pointers with no inline
+      // content to translate; skip them.
+      if (item.type === "item_reference") continue;
+
       if (item.role === "assistant") {
         assistant = appendAssistantText(
           assistant,
