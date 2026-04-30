@@ -182,6 +182,23 @@ Deno.test("DashboardPage renders the search section below the usage cards withou
   );
 });
 
+Deno.test("DashboardPage gates search config controls until saved config has loaded", () => {
+  const html = DashboardPage().toString();
+
+  assertStringIncludes(html, '<template x-if="!searchConfigLoaded">');
+  assertStringIncludes(html, '<template x-if="searchConfigLoaded">');
+  assertStringIncludes(html, "Loading saved search config...");
+
+  assert(
+    html.indexOf('<template x-if="searchConfigLoaded">') <
+      html.indexOf("Search Provider"),
+  );
+  assert(
+    html.indexOf("Loading saved search config...") <
+      html.indexOf('<template x-if="searchConfigLoaded">'),
+  );
+});
+
 Deno.test("DashboardPage renders helper functions inside script without HTML entity encoding", () => {
   const html = DashboardPage().toString();
 

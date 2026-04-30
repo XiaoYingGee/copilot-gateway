@@ -634,208 +634,235 @@ export function renderUpstreamTab() {
             </p>
           </div>
 
-          <div class="space-y-5">
-            <div>
-              <p
-                class="text-xs font-medium text-gray-500 uppercase tracking-widest mb-3"
-              >
-                Search Provider
-              </p>
+          <template x-if="!searchConfigLoaded">
+            <div class="space-y-4">
+              <div class="flex items-center gap-2 text-xs text-gray-500">
+                ${spinner("h-3.5 w-3.5 text-gray-500")}
+                <span>Loading saved search config...</span>
+              </div>
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <label
-                  class="flex items-center gap-3 rounded-xl border p-4 transition-all cursor-pointer"
-                  :class="searchConfigDraft.provider === 'disabled' ? 'border-accent-cyan/50 bg-accent-cyan/5' : 'border-white/10 hover:border-white/20'"
-                >
-                  <input
-                    type="radio"
-                    name="search-provider"
-                    value="disabled"
-                    class="accent-accent-cyan"
-                    :checked="searchConfigDraft.provider === 'disabled'"
-                    :disabled="!searchConfigLoaded"
-                    @change="setSearchConfigProvider('disabled')"
-                  >
-                  <div>
-                    <p class="text-sm font-medium text-white">Disabled</p>
-                    <p class="text-xs text-gray-500">
-                      No upstream web search provider
-                    </p>
-                  </div>
-                </label>
-
-                <label
-                  class="flex items-center gap-3 rounded-xl border p-4 transition-all cursor-pointer"
-                  :class="searchConfigDraft.provider === 'tavily' ? 'border-accent-cyan/50 bg-accent-cyan/5' : 'border-white/10 hover:border-white/20'"
-                >
-                  <input
-                    type="radio"
-                    name="search-provider"
-                    value="tavily"
-                    class="accent-accent-cyan"
-                    :checked="searchConfigDraft.provider === 'tavily'"
-                    :disabled="!searchConfigLoaded"
-                    @change="setSearchConfigProvider('tavily')"
-                  >
-                  <div>
-                    <p class="text-sm font-medium text-white">Tavily</p>
-                    <p class="text-xs text-gray-500">
-                      Gateway-managed Tavily API key
-                    </p>
-                  </div>
-                </label>
-
-                <label
-                  class="flex items-center gap-3 rounded-xl border p-4 transition-all cursor-pointer"
-                  :class="searchConfigDraft.provider === 'microsoft-grounding' ? 'border-accent-cyan/50 bg-accent-cyan/5' : 'border-white/10 hover:border-white/20'"
-                >
-                  <input
-                    type="radio"
-                    name="search-provider"
-                    value="microsoft-grounding"
-                    class="accent-accent-cyan"
-                    :checked="searchConfigDraft.provider === 'microsoft-grounding'"
-                    :disabled="!searchConfigLoaded"
-                    @change="setSearchConfigProvider('microsoft-grounding')"
-                  >
-                  <div>
-                    <p class="text-sm font-medium text-white">
-                      Microsoft Grounding
-                    </p>
-                    <p class="text-xs text-gray-500">
-                      Gateway-managed Microsoft Grounding key
-                    </p>
-                  </div>
-                </label>
+                <div class="h-24 rounded-xl bg-surface-600 animate-pulse"></div>
+                <div class="h-24 rounded-xl bg-surface-600 animate-pulse"></div>
+                <div class="h-24 rounded-xl bg-surface-600 animate-pulse"></div>
+              </div>
+              <div class="space-y-2">
+                <div class="h-4 w-32 bg-surface-600 rounded animate-pulse"></div>
+                <div class="h-11 bg-surface-600 rounded-lg animate-pulse"></div>
               </div>
             </div>
+          </template>
 
-            <div>
-              <label
-                class="block text-xs font-medium text-gray-500 uppercase tracking-widest mb-2"
-                x-text="searchCredentialLabel"
-              ></label>
-              <input
-                type="password"
-                autocomplete="off"
-                :placeholder="searchConfigDraft.provider === 'tavily' ? 'Tavily API key' : searchConfigDraft.provider === 'microsoft-grounding' ? 'Microsoft Grounding API key' : 'No credential needed when disabled'"
-                :value="searchCredentialValue"
-                @input="setSearchCredentialValue($event.target.value)"
-                :disabled="!searchConfigLoaded || searchConfigDraft.provider === 'disabled'"
-                class="w-full"
-              >
-            </div>
+          <template x-if="searchConfigLoaded">
+            <div class="space-y-5">
+              <div>
+                <p
+                  class="text-xs font-medium text-gray-500 uppercase tracking-widest mb-3"
+                >
+                  Search Provider
+                </p>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <label
+                    class="flex items-center gap-3 rounded-xl border p-4 transition-all cursor-pointer"
+                    :class="searchConfigDraft.provider === 'disabled' ? 'border-accent-cyan/50 bg-accent-cyan/5' : 'border-white/10 hover:border-white/20'"
+                  >
+                    <input
+                      type="radio"
+                      name="search-provider"
+                      value="disabled"
+                      class="accent-accent-cyan"
+                      :checked="searchConfigDraft.provider === 'disabled'"
+                      :disabled="!searchConfigLoaded"
+                      @change="setSearchConfigProvider('disabled')"
+                    >
+                    <div>
+                      <p class="text-sm font-medium text-white">Disabled</p>
+                      <p class="text-xs text-gray-500">
+                        No upstream web search provider
+                      </p>
+                    </div>
+                  </label>
 
-            <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-              <p class="text-xs text-gray-500" x-show="!searchConfigLoaded">
-                Loading saved search config...
-              </p>
+                  <label
+                    class="flex items-center gap-3 rounded-xl border p-4 transition-all cursor-pointer"
+                    :class="searchConfigDraft.provider === 'tavily' ? 'border-accent-cyan/50 bg-accent-cyan/5' : 'border-white/10 hover:border-white/20'"
+                  >
+                    <input
+                      type="radio"
+                      name="search-provider"
+                      value="tavily"
+                      class="accent-accent-cyan"
+                      :checked="searchConfigDraft.provider === 'tavily'"
+                      :disabled="!searchConfigLoaded"
+                      @change="setSearchConfigProvider('tavily')"
+                    >
+                    <div>
+                      <p class="text-sm font-medium text-white">Tavily</p>
+                      <p class="text-xs text-gray-500">
+                        Gateway-managed Tavily API key
+                      </p>
+                    </div>
+                  </label>
 
-              <button
-                @click="saveSearchConfig()"
-                class="btn-primary w-full sm:w-auto"
-                :disabled="!searchConfigLoaded || searchConfigSaving"
-              >
-                <span x-show="!searchConfigSaving">Save Search Config</span>
-                <span x-show="searchConfigSaving" class="flex items-center gap-2">
-                  ${spinner("h-4 w-4")} Saving...
-                </span>
-              </button>
-
-              <button
-                @click="testSearchConfig()"
-                class="btn-ghost w-full sm:w-auto"
-                :disabled="!searchConfigLoaded || searchConfigTesting || searchConfigDraft.provider === 'disabled'"
-              >
-                <span x-show="!searchConfigTesting">Test Search</span>
-                <span x-show="searchConfigTesting" class="flex items-center gap-2">
-                  ${spinner("h-4 w-4")} Testing...
-                </span>
-              </button>
-
-              <p
-                class="text-xs text-gray-500"
-                x-show="searchConfigDraft.provider === 'disabled'"
-              >
-                Search testing is disabled until a provider is selected.
-              </p>
-            </div>
-
-            <template x-if="searchConfigTestResult">
-              <div class="bg-surface-900 rounded-xl border border-white/5 p-4">
-                <div class="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div class="min-w-0">
-                    <p class="text-sm font-medium text-white">Search Test Result</p>
-                    <p class="text-xs text-gray-500">
-                      Provider: <span
-                        x-text="searchConfigTestResult.provider"
-                      ></span> · Query: <span
-                        x-text="searchConfigTestResult.query"
-                      ></span>
-                    </p>
-                  </div>
-                  <span
-                    class="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full"
-                    :class="searchConfigTestResult.ok ? 'bg-accent-emerald/10 text-accent-emerald' : 'bg-red-500/10 text-red-400'"
-                    x-text="searchConfigTestResult.ok ? 'OK' : 'Error'"
-                  ></span>
+                  <label
+                    class="flex items-center gap-3 rounded-xl border p-4 transition-all cursor-pointer"
+                    :class="searchConfigDraft.provider === 'microsoft-grounding' ? 'border-accent-cyan/50 bg-accent-cyan/5' : 'border-white/10 hover:border-white/20'"
+                  >
+                    <input
+                      type="radio"
+                      name="search-provider"
+                      value="microsoft-grounding"
+                      class="accent-accent-cyan"
+                      :checked="searchConfigDraft.provider === 'microsoft-grounding'"
+                      :disabled="!searchConfigLoaded"
+                      @change="setSearchConfigProvider('microsoft-grounding')"
+                    >
+                    <div>
+                      <p class="text-sm font-medium text-white">
+                        Microsoft Grounding
+                      </p>
+                      <p class="text-xs text-gray-500">
+                        Gateway-managed Microsoft Grounding key
+                      </p>
+                    </div>
+                  </label>
                 </div>
-
-                <template x-if="searchConfigTestResult.ok">
-                  <div class="space-y-3">
-                    <template
-                      x-for="result in searchConfigTestResult.results"
-                      :key="result.url + result.title"
-                    >
-                      <div
-                        class="rounded-lg border border-white/5 bg-surface-800 p-3"
-                      >
-                        <div class="flex items-start justify-between gap-3 mb-1">
-                          <div>
-                            <a
-                              :href="result.url"
-                              target="_blank"
-                              class="text-sm font-medium text-accent-cyan hover:underline break-words"
-                              x-text="result.title"
-                            ></a>
-                            <p
-                              class="text-[11px] text-gray-500 break-all"
-                              x-text="result.url"
-                            >
-                            </p>
-                          </div>
-                          <span
-                            class="text-[10px] text-gray-600 uppercase tracking-widest"
-                            x-show="result.pageAge"
-                            x-text="result.pageAge"
-                          ></span>
-                        </div>
-                        <p
-                          class="text-sm text-gray-300 leading-relaxed"
-                          x-text="result.previewText"
-                        >
-                        </p>
-                      </div>
-                    </template>
-                  </div>
-                </template>
-
-                <template x-if="!searchConfigTestResult.ok">
-                  <div class="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
-                    <p
-                      class="text-sm text-red-300 font-medium"
-                      x-text="searchConfigTestResult.error.code"
-                    >
-                    </p>
-                    <p
-                      class="text-sm text-gray-300 mt-1"
-                      x-text="searchConfigTestResult.error.message"
-                    >
-                    </p>
-                  </div>
-                </template>
               </div>
-            </template>
-          </div>
+
+              <div>
+                <label
+                  class="block text-xs font-medium text-gray-500 uppercase tracking-widest mb-2"
+                  x-text="searchCredentialLabel"
+                ></label>
+                <input
+                  type="password"
+                  autocomplete="off"
+                  :placeholder="searchConfigDraft.provider === 'tavily' ? 'Tavily API key' : searchConfigDraft.provider === 'microsoft-grounding' ? 'Microsoft Grounding API key' : 'No credential needed when disabled'"
+                  :value="searchCredentialValue"
+                  @input="setSearchCredentialValue($event.target.value)"
+                  :disabled="!searchConfigLoaded || searchConfigDraft.provider === 'disabled'"
+                  class="w-full"
+                >
+              </div>
+
+              <div
+                class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center"
+              >
+                <button
+                  @click="saveSearchConfig()"
+                  class="btn-primary w-full sm:w-auto"
+                  :disabled="!searchConfigLoaded || searchConfigSaving"
+                >
+                  <span x-show="!searchConfigSaving">Save Search Config</span>
+                  <span x-show="searchConfigSaving" class="flex items-center gap-2">
+                    ${spinner("h-4 w-4")} Saving...
+                  </span>
+                </button>
+
+                <button
+                  @click="testSearchConfig()"
+                  class="btn-ghost w-full sm:w-auto"
+                  :disabled="!searchConfigLoaded || searchConfigTesting || searchConfigDraft.provider === 'disabled'"
+                >
+                  <span x-show="!searchConfigTesting">Test Search</span>
+                  <span
+                    x-show="searchConfigTesting"
+                    class="flex items-center gap-2"
+                  >
+                    ${spinner("h-4 w-4")} Testing...
+                  </span>
+                </button>
+
+                <p
+                  class="text-xs text-gray-500"
+                  x-show="searchConfigDraft.provider === 'disabled'"
+                >
+                  Search testing is disabled until a provider is selected.
+                </p>
+              </div>
+
+              <template x-if="searchConfigTestResult">
+                <div class="bg-surface-900 rounded-xl border border-white/5 p-4">
+                  <div
+                    class="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div class="min-w-0">
+                      <p class="text-sm font-medium text-white">
+                        Search Test Result
+                      </p>
+                      <p class="text-xs text-gray-500">
+                        Provider: <span
+                          x-text="searchConfigTestResult.provider"
+                        ></span> · Query: <span
+                          x-text="searchConfigTestResult.query"
+                        ></span>
+                      </p>
+                    </div>
+                    <span
+                      class="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full"
+                      :class="searchConfigTestResult.ok ? 'bg-accent-emerald/10 text-accent-emerald' : 'bg-red-500/10 text-red-400'"
+                      x-text="searchConfigTestResult.ok ? 'OK' : 'Error'"
+                    ></span>
+                  </div>
+
+                  <template x-if="searchConfigTestResult.ok">
+                    <div class="space-y-3">
+                      <template
+                        x-for="result in searchConfigTestResult.results"
+                        :key="result.url + result.title"
+                      >
+                        <div
+                          class="rounded-lg border border-white/5 bg-surface-800 p-3"
+                        >
+                          <div class="flex items-start justify-between gap-3 mb-1">
+                            <div>
+                              <a
+                                :href="result.url"
+                                target="_blank"
+                                class="text-sm font-medium text-accent-cyan hover:underline break-words"
+                                x-text="result.title"
+                              ></a>
+                              <p
+                                class="text-[11px] text-gray-500 break-all"
+                                x-text="result.url"
+                              >
+                              </p>
+                            </div>
+                            <span
+                              class="text-[10px] text-gray-600 uppercase tracking-widest"
+                              x-show="result.pageAge"
+                              x-text="result.pageAge"
+                            ></span>
+                          </div>
+                          <p
+                            class="text-sm text-gray-300 leading-relaxed"
+                            x-text="result.previewText"
+                          >
+                          </p>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+
+                  <template x-if="!searchConfigTestResult.ok">
+                    <div
+                      class="rounded-lg border border-red-500/20 bg-red-500/5 p-3"
+                    >
+                      <p
+                        class="text-sm text-red-300 font-medium"
+                        x-text="searchConfigTestResult.error.code"
+                      >
+                      </p>
+                      <p
+                        class="text-sm text-gray-300 mt-1"
+                        x-text="searchConfigTestResult.error.message"
+                      >
+                      </p>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </template>
         </div>
       </div>
     </template>
