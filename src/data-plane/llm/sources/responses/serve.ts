@@ -57,6 +57,43 @@ const unsupportedResponsesModelResponse = (model: string): Response =>
     },
   }, { status: 400 });
 
+type UnsupportedStatefulContinuationField =
+  | "previous_response_id"
+  | "item_reference";
+
+const isItemReferenceInput = (item: unknown): boolean =>
+  typeof item === "object" && item !== null &&
+  (item as { type?: unknown }).type === "item_reference";
+
+const unsupportedStatefulContinuationField = (
+  payload: ResponsesPayload,
+): UnsupportedStatefulContinuationField | undefined => {
+  if (
+    payload.previous_response_id !== undefined &&
+    payload.previous_response_id !== null
+  ) {
+    return "previous_response_id";
+  }
+  if (
+    Array.isArray(payload.input) && payload.input.some(isItemReferenceInput)
+  ) {
+    return "item_reference";
+  }
+  return undefined;
+};
+
+const unsupportedStatefulContinuationResponse = (
+  field: UnsupportedStatefulContinuationField,
+): Response =>
+  Response.json({
+    error: {
+      message:
+        `Responses API ${field} is not supported by this gateway. Send the full input instead of using server-side conversation state references.`,
+      type: "invalid_request_error",
+      param: field,
+    },
+  }, { status: 400 });
+
 const createTranslatedResponseId = (): string =>
   `resp_${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
 
@@ -66,6 +103,14 @@ export const serveResponses = async (
   let lastPerformance: PerformanceTelemetryContext | undefined;
   try {
     const payload = await c.req.json<ResponsesPayload>();
+    // previous_response_id and item_reference require stateful server-side
+    // continuation. We cannot reliably preserve that semantic across Copilot
+    // account fallback and translated targets, so reject it at the Responses
+    // source boundary and make clients resend the full input instead.
+    const unsupportedField = unsupportedStatefulContinuationField(payload);
+    if (unsupportedField) {
+      return unsupportedStatefulContinuationResponse(unsupportedField);
+    }
     normalizeResponsesRequest(payload);
     const apiKeyId = c.get("apiKeyId") as string | undefined;
     const wantsStream = payload.stream === true;

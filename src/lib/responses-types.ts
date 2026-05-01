@@ -6,6 +6,7 @@
 export interface ResponsesPayload {
   model: string;
   input: string | ResponseInputItem[];
+  previous_response_id?: string | null;
   instructions?: string | null;
   temperature?: number | null;
   top_p?: number | null;

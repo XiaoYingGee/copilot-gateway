@@ -14,6 +14,72 @@ import {
   withMockedFetch,
 } from "../../../../test-helpers.ts";
 
+Deno.test("/v1/responses rejects previous_response_id at the entrypoint", async () => {
+  const { apiKey } = await setupAppTest();
+  let fetchCalls = 0;
+
+  await withMockedFetch(() => {
+    fetchCalls++;
+    throw new Error("unexpected upstream fetch");
+  }, async () => {
+    const response = await requestApp("/v1/responses", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+      },
+      body: JSON.stringify({
+        model: "gpt-direct-responses",
+        previous_response_id: "resp_previous",
+        input: [{ type: "message", role: "user", content: "Hi" }],
+        stream: false,
+      }),
+    });
+
+    assertEquals(response.status, 400);
+    const body = await response.json();
+    assertEquals(body.error.type, "invalid_request_error");
+    assertStringIncludes(body.error.message, "previous_response_id");
+    assertStringIncludes(body.error.message, "full input");
+  });
+
+  assertEquals(fetchCalls, 0);
+});
+
+Deno.test("/v1/responses rejects item_reference at the entrypoint", async () => {
+  const { apiKey } = await setupAppTest();
+  let fetchCalls = 0;
+
+  await withMockedFetch(() => {
+    fetchCalls++;
+    throw new Error("unexpected upstream fetch");
+  }, async () => {
+    const response = await requestApp("/v1/responses", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey.key,
+      },
+      body: JSON.stringify({
+        model: "gpt-direct-responses",
+        input: [
+          { type: "item_reference", id: "item_previous" },
+          { type: "message", role: "user", content: "Continue" },
+        ],
+        stream: false,
+      }),
+    });
+
+    assertEquals(response.status, 400);
+    const body = await response.json();
+    assertEquals(body.error.type, "invalid_request_error");
+    assertStringIncludes(body.error.message, "item_reference");
+    assertStringIncludes(body.error.message, "full input");
+  });
+
+  assertEquals(fetchCalls, 0);
+});
+
 Deno.test("/v1/responses direct mode converts apply_patch and fixes mismatched stream item IDs", async () => {
   const { apiKey } = await setupAppTest();
 
