@@ -1360,9 +1360,22 @@ export function renderUsageTab() {
               "w-16",
             ),
             usageSummaryMetric(
+              "cost",
+              "Est. Cost",
+              "tokenSummary.cost >= 1 ? '$' + tokenSummary.cost.toFixed(2) : tokenSummary.cost >= 0.01 ? '$' + tokenSummary.cost.toFixed(3) : tokenSummary.cost > 0 ? '$' + tokenSummary.cost.toFixed(4) : '$0'",
+              "w-20",
+            ),
+          )} ${usageSummaryMetricPair(
+            usageSummaryMetric(
               "total",
               "Total Tokens",
               "tokenSummary.total.toLocaleString()",
+              "w-20",
+            ),
+            usageSummaryMetric(
+              "output",
+              "Output Tokens",
+              "tokenSummary.output.toLocaleString()",
               "w-20",
             ),
           )} ${usageSummaryMetricPair(
@@ -1373,9 +1386,9 @@ export function renderUsageTab() {
               "w-20",
             ),
             usageSummaryMetric(
-              "output",
-              "Output Tokens",
-              "tokenSummary.output.toLocaleString()",
+              "prefill",
+              "Prefill Input",
+              "tokenSummary.prefill.toLocaleString()",
               "w-20",
             ),
           )} ${usageSummaryMetricPair(
@@ -1389,19 +1402,6 @@ export function renderUsageTab() {
               "cachedRate",
               "Cached Rate",
               "formatInputRate(tokenSummary.cacheRead, tokenSummary.input)",
-              "w-20",
-            ),
-          )} ${usageSummaryMetricPair(
-            usageSummaryMetric(
-              "prefill",
-              "Prefill Input",
-              "tokenSummary.prefill.toLocaleString()",
-              "w-20",
-            ),
-            usageSummaryMetric(
-              "prefillRate",
-              "Prefill Rate",
-              "formatInputRate(tokenSummary.prefill, tokenSummary.input)",
               "w-20",
             ),
           )} ${usageSummaryMetricPair(

@@ -1,5 +1,6 @@
 import {
   assert,
+  assertAlmostEquals,
   assertEquals,
   assertFalse,
   assertStringIncludes,
@@ -377,11 +378,25 @@ Deno.test("DashboardPage renders helper functions inside script without HTML ent
   assertFalse(html.includes("&quot;tavily&quot;"));
 });
 
+Deno.test("DashboardPage preserves pricing regex specificity in generated script", () => {
+  const html = DashboardPage().toString();
+
+  assertStringIncludes(html, "new RegExp('^gpt-5[.][23](-codex)?$')");
+  assertStringIncludes(html, "new RegExp('^gpt-4[.]1')");
+  assertStringIncludes(
+    html,
+    "new RegExp('^gpt-4o(-[0-9]{4}-[0-9]{2}-[0-9]{2})?$')",
+  );
+  assertFalse(html.includes("/^gpt-5.[23](-codex)?$/"));
+  assertFalse(html.includes("/^gpt-4o(-d{4}-d{2}-d{2})?$/"));
+});
+
 Deno.test("DashboardPage renders clickable usage summary metrics for chart axis selection", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "tokenChartMetric: 'total'");
   assertStringIncludes(html, "@click=\"switchTokenChartMetric('requests')\"");
+  assertStringIncludes(html, "@click=\"switchTokenChartMetric('cost')\"");
   assertStringIncludes(html, "@click=\"switchTokenChartMetric('total')\"");
   assertStringIncludes(html, "@click=\"switchTokenChartMetric('input')\"");
   assertStringIncludes(html, "@click=\"switchTokenChartMetric('output')\"");
@@ -393,10 +408,6 @@ Deno.test("DashboardPage renders clickable usage summary metrics for chart axis 
   assertStringIncludes(html, "@click=\"switchTokenChartMetric('prefill')\"");
   assertStringIncludes(
     html,
-    "@click=\"switchTokenChartMetric('prefillRate')\"",
-  );
-  assertStringIncludes(
-    html,
     "@click=\"switchTokenChartMetric('cacheCreation')\"",
   );
   assertStringIncludes(
@@ -406,7 +417,8 @@ Deno.test("DashboardPage renders clickable usage summary metrics for chart axis 
   assertStringIncludes(html, "Cached Input");
   assertStringIncludes(html, "Cached Rate");
   assertStringIncludes(html, "Prefill Input");
-  assertStringIncludes(html, "Prefill Rate");
+  assertStringIncludes(html, "Est. Cost");
+  assertFalse(html.includes("Prefill Rate"));
   assertStringIncludes(
     html,
     "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4",
@@ -416,16 +428,16 @@ Deno.test("DashboardPage renders clickable usage summary metrics for chart axis 
     5,
   );
   assertFalse(html.includes("grid grid-cols-2 md:grid-cols-5 gap-4"));
-  assert(html.indexOf("Cached Input") < html.indexOf("Prefill Input"));
-  assert(html.indexOf("Cached Rate") < html.indexOf("Prefill Rate"));
+  assert(html.indexOf("Prefill Input") < html.indexOf("Cached Input"));
   assertStringIncludes(html, ":class=\"tokenChartMetric === 'total'");
 });
 
 Deno.test("DashboardPage renders cache and prefill tooltip columns without ratio", () => {
   const html = DashboardPage().toString();
 
+  assertStringIncludes(html, "Cost'.padStart(9)");
   assertStringIncludes(html, "Cached%'.padStart(8)");
-  assertStringIncludes(html, "Prefill%'.padStart(8)");
+  assertFalse(html.includes("Prefill%'.padStart(8)"));
   assertStringIncludes(html, "Output'.padStart(7)");
   assertStringIncludes(html, "Hit%'.padStart(7)");
   assertFalse(html.includes("Ratio'.padStart"));
@@ -638,19 +650,6 @@ Deno.test("dashboardApp updates chart data and options when switching summary me
     assert(chart.data.datasets[0].data.includes(3));
   }
 
-  app.switchTokenChartMetric("prefillRate");
-  assertEquals(app.tokenChartMetric, "prefillRate");
-  for (const chart of charts) {
-    assertEquals(chart.options.scales.y.title.text, "Prefill Rate");
-    assertEquals(chart.options.scales.y.stacked, false);
-    assertEquals(chart.options.scales.y.suggestedMax, 100);
-    assertEquals(chart.data.datasets[0].fill, false);
-    assertEquals(chart.data.datasets[0].spanGaps, true);
-    assert(chart.data.datasets[0].data.includes(50));
-    assert(chart.data.datasets[0].data.includes(100));
-    assert(chart.data.datasets[0].data.includes(50));
-  }
-
   app.switchTokenChartMetric("requests");
   assertEquals(app.tokenChartMetric, "requests");
   for (const chart of charts) {
@@ -663,6 +662,33 @@ Deno.test("dashboardApp updates chart data and options when switching summary me
     assert(chart.data.datasets[0].data.includes(2));
     assert(chart.data.datasets[0].data.includes(3));
     assert(chart.data.datasets[0].data.includes(4));
+  }
+});
+
+Deno.test("dashboardApp estimates cost without double-counting cache writes", () => {
+  const { app, charts } = createDashboardHarness();
+  app.tokenData = [
+    usageRecord(0, {
+      model: "claude-sonnet-4",
+      inputTokens: 100,
+      outputTokens: 10,
+      cacheReadTokens: 20,
+      cacheCreationTokens: 30,
+    }),
+  ];
+
+  app.renderTokenCharts();
+  app.switchTokenChartMetric("cost");
+
+  const expectedCost = 0.0004185;
+  assertAlmostEquals(app.tokenSummary.cost, expectedCost, 1e-10);
+  for (const chart of charts) {
+    assertEquals(chart.options.scales.y.title.text, "Est. Cost");
+    const nonZeroValues = chart.data.datasets[0].data.filter((v) =>
+      typeof v === "number" && v > 0
+    );
+    assertEquals(nonZeroValues.length, 1);
+    assertAlmostEquals(nonZeroValues[0] as number, expectedCost, 1e-10);
   }
 });
 
@@ -697,8 +723,9 @@ Deno.test("dashboardApp tooltip shows cached and prefill columns without ratio",
     parsed: { y: 120 },
   });
 
+  assertStringIncludes(String(header), "Cost");
   assertStringIncludes(String(header), "Cached%");
-  assertStringIncludes(String(header), "Prefill%");
+  assertFalse(String(header).includes("Prefill%"));
   assertStringIncludes(String(header), "Output");
   assertStringIncludes(String(header), "Hit%");
   assertFalse(String(header).includes("Ratio"));
@@ -706,7 +733,6 @@ Deno.test("dashboardApp tooltip shows cached and prefill columns without ratio",
   assertStringIncludes(row, "30");
   assertStringIncludes(row, "30.0%");
   assertStringIncludes(row, "70");
-  assertStringIncludes(row, "70.0%");
   assertStringIncludes(row, "20");
   assertFalse(row.includes("5.00x"));
   assertStringIncludes(row, "75.0%");
