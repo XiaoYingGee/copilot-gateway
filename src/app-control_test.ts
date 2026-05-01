@@ -61,6 +61,64 @@ Deno.test("admin key can access playground-approved data plane routes with x-mod
   });
 });
 
+Deno.test("admin key can access playground embeddings with x-models-playground", async () => {
+  const { adminKey } = await setupAppTest();
+
+  await withMockedFetch((request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        { id: "text-embedding-real", supported_endpoints: ["/embeddings"] },
+      ]));
+    }
+
+    if (url.pathname === "/embeddings") {
+      return jsonResponse({
+        object: "list",
+        model: "text-embedding-real",
+        data: [{ object: "embedding", index: 0, embedding: [0.1] }],
+        usage: { prompt_tokens: 1, total_tokens: 1 },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp("/v1/embeddings", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": adminKey,
+        "x-models-playground": "1",
+      },
+      body: JSON.stringify({
+        model: "text-embedding-real",
+        input: "hello",
+      }),
+    });
+
+    assertEquals(response.status, 200);
+    assertEquals(await response.json(), {
+      object: "list",
+      model: "text-embedding-real",
+      data: [{ object: "embedding", index: 0, embedding: [0.1] }],
+      usage: { prompt_tokens: 1, total_tokens: 1 },
+    });
+  });
+});
+
 Deno.test("API key users only see their own key in /api/keys", async () => {
   const { repo, apiKey } = await setupAppTest();
   await repo.apiKeys.save({
