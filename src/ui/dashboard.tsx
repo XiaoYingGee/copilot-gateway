@@ -6,7 +6,6 @@ import {
   renderModelsTab,
   renderPerformanceTab,
   renderSettingsTab,
-  renderUpstreamTab,
   renderUsageTab,
 } from "./dashboard/tabs.tsx";
 import { Layout } from "./layout.tsx";
@@ -28,7 +27,7 @@ export function DashboardPage() {
         ${renderDashboardHeader()}
 
         <main class="max-w-6xl mx-auto px-4 sm:px-6 pt-4 sm:pt-5 pb-8">
-          ${renderUpstreamTab()} ${renderKeysTab()} ${renderUsageTab()} ${renderPerformanceTab()} ${renderModelsTab()} ${renderSettingsTab()}
+          ${renderSettingsTab()} ${renderModelsTab()} ${renderKeysTab()} ${renderUsageTab()} ${renderPerformanceTab()}
         </main>
       </div>
 

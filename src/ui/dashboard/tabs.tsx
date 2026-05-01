@@ -111,6 +111,51 @@ function codeBlock(
   `;
 }
 
+function endpointRow(
+  method: "GET" | "POST",
+  path: string,
+  name: string,
+  docsHref: string,
+) {
+  const methodClass = method === "GET"
+    ? "bg-accent-cyan/10 text-accent-cyan"
+    : "bg-accent-emerald/10 text-accent-emerald";
+
+  return html`
+    <div
+      class="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap border-b border-white/[0.04] py-2 last:border-b-0"
+    >
+      <span
+        class="shrink-0 rounded px-2 py-0.5 font-mono text-[10px] font-bold ${methodClass}"
+      >${method}</span>
+      <code
+        class="min-w-0 max-w-[48%] truncate font-mono text-xs font-semibold text-gray-300 sm:max-w-[220px]"
+      >${path}</code>
+      <span class="min-w-0 flex-1 truncate text-xs font-medium text-gray-500">
+        ${name}
+      </span>
+      <a
+        href="${docsHref}"
+        target="_blank"
+        rel="noreferrer"
+        class="ml-auto inline-flex shrink-0 items-center gap-1 text-xs font-bold text-accent-cyan hover:underline"
+      >
+        Docs
+        <svg
+          class="h-3.5 w-3.5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path d="M7 17 17 7" />
+          <path d="M7 7h10v10" />
+        </svg>
+      </a>
+    </div>
+  `;
+}
+
 export function renderDashboardHeader() {
   return html`
     <header
@@ -144,13 +189,20 @@ export function renderDashboardHeader() {
         >
           <template x-if="isAdmin">
             <button
-              @click="switchTab('upstream')"
+              @click="switchTab('settings')"
               class="shrink-0 px-2 py-2 rounded-md text-xs font-medium transition-all sm:px-4 sm:text-sm"
-              :class="tab === 'upstream' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
+              :class="tab === 'settings' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
             >
-              Upstream
+              Settings
             </button>
           </template>
+          <button
+            @click="switchTab('models')"
+            class="shrink-0 px-2 py-2 rounded-md text-xs font-medium transition-all sm:px-4 sm:text-sm"
+            :class="tab === 'models' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
+          >
+            Models
+          </button>
           <button
             @click="switchTab('keys')"
             class="shrink-0 px-2 py-2 rounded-md text-xs font-medium transition-all sm:px-4 sm:text-sm"
@@ -172,22 +224,6 @@ export function renderDashboardHeader() {
           >
             Performance
           </button>
-          <button
-            @click="switchTab('models')"
-            class="shrink-0 px-2 py-2 rounded-md text-xs font-medium transition-all sm:px-4 sm:text-sm"
-            :class="tab === 'models' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
-          >
-            Models
-          </button>
-          <template x-if="isAdmin">
-            <button
-              @click="switchTab('settings')"
-              class="shrink-0 px-2 py-2 rounded-md text-xs font-medium transition-all sm:px-4 sm:text-sm"
-              :class="tab === 'settings' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'"
-            >
-              Settings
-            </button>
-          </template>
         </nav>
 
         <button @click="logout()" class="btn-ghost text-xs ml-auto shrink-0">
@@ -195,699 +231,6 @@ export function renderDashboardHeader() {
         </button>
       </div>
     </header>
-  `;
-}
-
-export function renderUpstreamTab() {
-  return html`
-    <template x-if="isAdmin">
-      <div
-        x-show="tab === 'upstream'"
-        x-transition:enter="transition ease-out duration-200"
-        x-transition:enter-start="opacity-0"
-        x-transition:enter-end="opacity-100"
-      >
-        <template x-if="meLoaded && githubAccounts.length === 0">
-          <div
-            class="glass-card p-5 sm:p-6 mb-8 glow-border animate-in flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <div class="min-w-0">
-              <h3 class="text-white font-medium mb-1">Connect GitHub Account</h3>
-              <p class="text-sm text-gray-400">
-                Link your GitHub account to use Copilot API with your own token.
-              </p>
-            </div>
-            <button
-              @click="startGithubAuth()"
-              class="btn-primary w-full sm:w-auto"
-              :disabled="deviceFlow.loading"
-            >
-              <span x-show="!deviceFlow.loading">Connect GitHub</span>
-              <span x-show="deviceFlow.loading" class="flex items-center gap-2">
-                ${spinner("h-4 w-4")} Connecting…
-              </span>
-            </button>
-          </div>
-        </template>
-
-        <template x-if="deviceFlow.userCode">
-          <div
-            class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in overflow-y-auto p-4"
-          >
-            <div class="glass-card p-6 sm:p-8 max-w-md w-full glow-cyan">
-              <h3 class="text-white text-lg font-semibold mb-2">
-                GitHub Authorization
-              </h3>
-              <p class="text-gray-400 text-sm mb-6">
-                Enter this code on GitHub to authorize:
-              </p>
-
-              <div
-                class="bg-surface-900 rounded-xl p-6 text-center mb-6 glow-border"
-              >
-                <code
-                  class="block text-2xl sm:text-3xl font-mono font-bold text-accent-cyan tracking-[0.2em] sm:tracking-[0.3em] break-all"
-                  x-text="deviceFlow.userCode"
-                ></code>
-              </div>
-
-              <p class="text-gray-500 text-xs text-center mb-2">
-                Visit <a
-                  :href="deviceFlow.verificationUri"
-                  class="text-accent-cyan hover:underline break-all"
-                  x-text="deviceFlow.verificationUri"
-                  target="_blank"
-                ></a>
-              </p>
-              <a
-                :href="deviceFlow.verificationUri"
-                target="_blank"
-                class="btn-primary w-full block text-center mb-4"
-              >
-                Open GitHub
-              </a>
-
-              <div
-                class="flex items-center justify-center gap-2 text-sm text-gray-500"
-              >
-                ${spinner("h-4 w-4")} Waiting for authorization...
-              </div>
-
-              <button @click="cancelDeviceFlow()" class="btn-ghost w-full mt-4">
-                Cancel
-              </button>
-            </div>
-          </div>
-        </template>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
-          <div class="glass-card p-6 hover-lift animate-in delay-1">
-            <div class="flex items-center justify-between mb-4">
-              <span
-                class="text-xs font-medium text-gray-500 uppercase tracking-widest"
-              >Premium Requests</span>
-              <div
-                class="w-2 h-2 rounded-full status-pulse"
-                :class="usageData ? (usagePercent > 90 ? 'bg-accent-rose' : usagePercent > 70 ? 'bg-accent-amber' : 'bg-accent-emerald') : 'bg-gray-600'"
-              >
-              </div>
-            </div>
-            <template x-if="usageData">
-              <div>
-                <div class="flex items-baseline gap-2 mb-3">
-                  <span
-                    class="text-3xl font-bold text-white font-mono"
-                    x-text="usageData.quota_snapshots.premium_interactions.entitlement - usageData.quota_snapshots.premium_interactions.remaining"
-                  ></span>
-                  <span class="text-sm text-gray-500">/ <span
-                    x-text="usageData.quota_snapshots.premium_interactions.entitlement"
-                  ></span></span>
-                </div>
-                <div class="progress-track">
-                  <div
-                    class="progress-fill"
-                    :class="usagePercent > 90 ? 'bg-accent-rose' : usagePercent > 70 ? 'bg-gradient-to-r from-accent-amber to-accent-rose' : 'bg-gradient-to-r from-accent-cyan to-accent-emerald'"
-                    :style="'width:' + usagePercent + '%'"
-                  >
-                  </div>
-                </div>
-                <p class="text-xs text-gray-500 mt-2">
-                  <span
-                    x-text="usageData.quota_snapshots.premium_interactions.remaining"
-                  ></span> remaining · Resets <span
-                    x-text="formatDate(usageData.quota_reset_date)"
-                  ></span>
-                </p>
-              </div>
-            </template>
-            <template x-if="!usageData && !usageError">
-              <div class="space-y-2">
-                <div class="h-8 bg-surface-600 rounded animate-pulse"></div>
-                <div class="h-2 bg-surface-600 rounded animate-pulse"></div>
-              </div>
-            </template>
-            <template x-if="usageError">
-              <p class="text-sm text-gray-500">Unable to load</p>
-            </template>
-          </div>
-
-          <div class="glass-card p-6 hover-lift animate-in delay-2">
-            <div class="flex items-center justify-between mb-4">
-              <span
-                class="text-xs font-medium text-gray-500 uppercase tracking-widest"
-              >Chat Quota</span>
-              <svg
-                class="w-4 h-4 text-gray-600"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path
-                  d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
-                />
-              </svg>
-            </div>
-            <template x-if="usageData">
-              <div>
-                <div class="flex items-baseline gap-2 mb-1">
-                  <span
-                    class="text-2xl font-bold text-white font-mono"
-                    x-text="usageData.quota_snapshots.chat.unlimited ? '\\u221e' : usageData.quota_snapshots.chat.remaining"
-                  ></span>
-                  <span
-                    class="text-xs text-gray-500"
-                    x-show="!usageData.quota_snapshots.chat.unlimited"
-                  >remaining</span>
-                  <span
-                    class="text-xs text-accent-emerald"
-                    x-show="usageData.quota_snapshots.chat.unlimited"
-                  >unlimited</span>
-                </div>
-                <p class="text-xs text-gray-500">
-                  Plan: <span
-                    class="text-gray-300"
-                    x-text="usageData.copilot_plan"
-                  ></span>
-                </p>
-              </div>
-            </template>
-            <template x-if="!usageData">
-              <div class="h-8 bg-surface-600 rounded animate-pulse"></div>
-            </template>
-          </div>
-
-          <div class="glass-card p-6 hover-lift animate-in delay-3">
-            <div class="flex items-center justify-between mb-4">
-              <span
-                class="text-xs font-medium text-gray-500 uppercase tracking-widest"
-              >Completions</span>
-              <svg
-                class="w-4 h-4 text-gray-600"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <polyline points="16 18 22 12 16 6" />
-                <polyline points="8 6 2 12 8 18" />
-              </svg>
-            </div>
-            <template x-if="usageData">
-              <div>
-                <div class="flex items-baseline gap-2 mb-1">
-                  <span
-                    class="text-2xl font-bold text-white font-mono"
-                    x-text="usageData.quota_snapshots.completions.unlimited ? '\\u221e' : usageData.quota_snapshots.completions.remaining"
-                  ></span>
-                  <span
-                    class="text-xs text-gray-500"
-                    x-show="!usageData.quota_snapshots.completions.unlimited"
-                  >remaining</span>
-                  <span
-                    class="text-xs text-accent-emerald"
-                    x-show="usageData.quota_snapshots.completions.unlimited"
-                  >unlimited</span>
-                </div>
-                <p class="text-xs text-gray-500">Code completions</p>
-              </div>
-            </template>
-            <template x-if="!usageData">
-              <div class="h-8 bg-surface-600 rounded animate-pulse"></div>
-            </template>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <div class="glass-card p-6 animate-in delay-4">
-            <div class="flex items-center justify-between mb-4">
-              <h3
-                class="text-xs font-medium text-gray-500 uppercase tracking-widest"
-              >
-                GitHub Accounts
-              </h3>
-              <template x-if="meLoaded && githubAccounts.length > 0">
-                <button
-                  @click="startGithubAuth()"
-                  class="btn-ghost text-xs"
-                  :disabled="deviceFlow.loading"
-                >
-                  <span x-show="!deviceFlow.loading">+ Add</span>
-                  <span
-                    x-show="deviceFlow.loading"
-                    class="flex items-center gap-1.5"
-                  >
-                    ${spinner("h-3 w-3")} Adding…
-                  </span>
-                </button>
-              </template>
-            </div>
-            <template x-if="!meLoaded">
-              <div class="space-y-3">
-                <div class="flex items-center gap-3">
-                  <div
-                    class="w-9 h-9 rounded-lg bg-surface-600 animate-pulse shrink-0"
-                  >
-                  </div>
-                  <div class="space-y-1.5 flex-1">
-                    <div class="h-4 w-28 bg-surface-600 rounded animate-pulse">
-                    </div>
-                    <div class="h-3 w-20 bg-surface-600 rounded animate-pulse">
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </template>
-            <template x-if="meLoaded && githubAccounts.length === 0">
-              <p class="text-sm text-gray-500">No GitHub accounts connected</p>
-            </template>
-            <template x-if="meLoaded && githubAccounts.length > 0">
-              <div class="space-y-1">
-                <template x-for="(acct, index) in githubAccounts" :key="acct.id">
-                  <div
-                    @click="selectGithubAccount(acct.id)"
-                    class="rounded-lg px-3 py-2.5 transition-colors"
-                    :class="selectedGithubAccountId === acct.id ? 'bg-accent-cyan/5 border border-accent-cyan/15' : 'hover:bg-white/[0.03] cursor-pointer border border-transparent'"
-                  >
-                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start">
-                      <div class="flex min-w-0 flex-1 items-start gap-3">
-                        <img
-                          :src="acct.avatar_url"
-                          class="w-9 h-9 shrink-0 rounded-lg ring-1 ring-white/5"
-                        />
-                        <div class="min-w-0 flex-1">
-                          <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <p
-                              class="min-w-0 truncate text-sm text-white font-medium"
-                              x-text="acct.name || acct.login"
-                            >
-                            </p>
-                          </div>
-                          <p
-                            class="text-xs text-gray-500 truncate"
-                            x-text="'@' + acct.login"
-                          >
-                          </p>
-                          <div class="mt-2" x-show="hasUnavailableModels(acct)">
-                            <button
-                              type="button"
-                              @click.stop="toggleUnavailableDetails(acct)"
-                              :aria-expanded="unavailablePanelOpen(acct).toString()"
-                              class="inline-flex min-h-7 items-center gap-1.5 rounded-md bg-accent-amber/10 px-2 text-[10px] font-medium uppercase tracking-widest text-accent-amber ring-1 ring-accent-amber/20 transition-colors hover:bg-accent-amber/15"
-                            >
-                              <span
-                                class="h-1.5 w-1.5 rounded-full bg-accent-amber status-pulse"
-                              ></span>
-                              <span x-text="unavailableBadgeText(acct)"></span>
-                              <svg
-                                x-show="hasUnavailableModels(acct)"
-                                class="h-3 w-3 transition-transform"
-                                :class="unavailablePanelOpen(acct) ? 'rotate-180' : ''"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                              >
-                                <polyline points="6 9 12 15 18 9" />
-                              </svg>
-                            </button>
-                          </div>
-                          <div
-                            x-show="unavailablePanelOpen(acct)"
-                            @click.stop
-                            class="mt-2 space-y-1.5 rounded-lg border border-accent-amber/10 bg-black/15 p-2"
-                          >
-                            <template
-                              x-for="status in unavailableModels(acct)"
-                              :key="status.model + ':' + status.status"
-                            >
-                              <div
-                                class="flex flex-col gap-1 rounded-md bg-white/[0.03] px-2 py-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
-                              >
-                                <div class="min-w-0">
-                                  <p
-                                    class="break-all font-mono text-[11px] text-white"
-                                    x-text="status.model"
-                                  >
-                                  </p>
-                                  <p
-                                    class="mt-0.5 text-[10px] text-gray-500"
-                                    x-text="'HTTP ' + status.status"
-                                  >
-                                  </p>
-                                </div>
-                                <span
-                                  class="w-fit shrink-0 font-mono text-[10px] text-accent-amber"
-                                  x-text="cooldownRecoveryText(status)"
-                                ></span>
-                              </div>
-                            </template>
-                          </div>
-                        </div>
-                      </div>
-                      <div
-                        class="flex w-full shrink-0 items-center justify-end gap-1 border-t border-white/[0.04] pt-2 sm:w-auto sm:border-t-0 sm:pt-0 sm:gap-1.5"
-                      >
-                        <button
-                          @click.stop="moveGithubAccount(acct.id, -1)"
-                          class="inline-flex min-h-8 min-w-8 items-center justify-center rounded-md text-gray-600 hover:text-accent-cyan hover:bg-white/[0.04] transition-colors p-1 disabled:opacity-30 disabled:hover:text-gray-600 disabled:hover:bg-transparent sm:min-h-9 sm:min-w-9"
-                          :disabled="index === 0"
-                          aria-label="Move account up"
-                          title="Move up"
-                        >
-                          <svg
-                            class="w-3.5 h-3.5"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                          >
-                            <polyline points="18 15 12 9 6 15" />
-                          </svg>
-                        </button>
-                        <button
-                          @click.stop="moveGithubAccount(acct.id, 1)"
-                          class="inline-flex min-h-8 min-w-8 items-center justify-center rounded-md text-gray-600 hover:text-accent-cyan hover:bg-white/[0.04] transition-colors p-1 disabled:opacity-30 disabled:hover:text-gray-600 disabled:hover:bg-transparent sm:min-h-9 sm:min-w-9"
-                          :disabled="index === githubAccounts.length - 1"
-                          aria-label="Move account down"
-                          title="Move down"
-                        >
-                          <svg
-                            class="w-3.5 h-3.5"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                          >
-                            <polyline points="6 9 12 15 18 9" />
-                          </svg>
-                        </button>
-                        <button
-                          @click.stop="disconnectGithub(acct.id, acct.login)"
-                          class="inline-flex min-h-8 min-w-8 items-center justify-center rounded-md text-gray-600 hover:text-accent-rose hover:bg-white/[0.04] transition-colors p-1 sm:min-h-9 sm:min-w-9"
-                          aria-label="Disconnect GitHub account"
-                          title="Disconnect"
-                        >
-                          <svg
-                            class="w-3.5 h-3.5"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                          >
-                            <line x1="18" y1="6" x2="6" y2="18" />
-                            <line x1="6" y1="6" x2="18" y2="18" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </template>
-              </div>
-            </template>
-          </div>
-
-          <div class="glass-card p-6 animate-in delay-5">
-            <h3
-              class="text-xs font-medium text-gray-500 uppercase tracking-widest mb-4"
-            >
-              API Endpoints
-            </h3>
-            <div class="space-y-3 font-mono text-xs">
-              <div class="flex items-center gap-2">
-                <span
-                  class="px-2 py-0.5 rounded bg-accent-emerald/10 text-accent-emerald text-[10px] font-bold"
-                >POST</span>
-                <span class="text-gray-300 break-all">/v1/chat/completions</span>
-              </div>
-              <div class="flex items-center gap-2">
-                <span
-                  class="px-2 py-0.5 rounded bg-accent-emerald/10 text-accent-emerald text-[10px] font-bold"
-                >POST</span>
-                <span class="text-gray-300 break-all">/v1/messages</span>
-              </div>
-              <div class="flex items-center gap-2">
-                <span
-                  class="px-2 py-0.5 rounded bg-accent-emerald/10 text-accent-emerald text-[10px] font-bold"
-                >POST</span>
-                <span class="text-gray-300 break-all">/v1/responses</span>
-              </div>
-              <div class="flex items-center gap-2">
-                <span
-                  class="px-2 py-0.5 rounded bg-accent-emerald/10 text-accent-emerald text-[10px] font-bold"
-                >POST</span>
-                <span class="text-gray-300 break-all">/v1/embeddings</span>
-              </div>
-              <div class="flex items-center gap-2">
-                <span
-                  class="px-2 py-0.5 rounded bg-accent-cyan/10 text-accent-cyan text-[10px] font-bold"
-                >GET</span>
-                <span class="text-gray-300 break-all">/v1/models</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="glass-card p-6 mt-8 animate-in delay-6">
-          <div class="mb-4">
-            <h3 class="text-white font-semibold mb-1">Web Search</h3>
-            <p class="text-sm text-gray-400">
-              Configure the search provider used by Anthropic Messages web search.
-            </p>
-          </div>
-
-          <template x-if="!searchConfigLoaded">
-            <div class="space-y-4">
-              <div class="flex items-center gap-2 text-xs text-gray-500">
-                ${spinner("h-3.5 w-3.5 text-gray-500")}
-                <span>Loading saved search config...</span>
-              </div>
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div class="h-24 rounded-xl bg-surface-600 animate-pulse"></div>
-                <div class="h-24 rounded-xl bg-surface-600 animate-pulse"></div>
-                <div class="h-24 rounded-xl bg-surface-600 animate-pulse"></div>
-              </div>
-              <div class="space-y-2">
-                <div class="h-4 w-32 bg-surface-600 rounded animate-pulse"></div>
-                <div class="h-11 bg-surface-600 rounded-lg animate-pulse"></div>
-              </div>
-            </div>
-          </template>
-
-          <template x-if="searchConfigLoaded">
-            <div class="space-y-5">
-              <div>
-                <p
-                  class="text-xs font-medium text-gray-500 uppercase tracking-widest mb-3"
-                >
-                  Search Provider
-                </p>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <label
-                    class="flex items-center gap-3 rounded-xl border p-4 transition-all cursor-pointer"
-                    :class="searchConfigDraft.provider === 'disabled' ? 'border-accent-cyan/50 bg-accent-cyan/5' : 'border-white/10 hover:border-white/20'"
-                  >
-                    <input
-                      type="radio"
-                      name="search-provider"
-                      value="disabled"
-                      class="accent-accent-cyan"
-                      :checked="searchConfigDraft.provider === 'disabled'"
-                      :disabled="!searchConfigLoaded"
-                      @change="setSearchConfigProvider('disabled')"
-                    >
-                    <div>
-                      <p class="text-sm font-medium text-white">Disabled</p>
-                      <p class="text-xs text-gray-500">
-                        No upstream web search provider
-                      </p>
-                    </div>
-                  </label>
-
-                  <label
-                    class="flex items-center gap-3 rounded-xl border p-4 transition-all cursor-pointer"
-                    :class="searchConfigDraft.provider === 'tavily' ? 'border-accent-cyan/50 bg-accent-cyan/5' : 'border-white/10 hover:border-white/20'"
-                  >
-                    <input
-                      type="radio"
-                      name="search-provider"
-                      value="tavily"
-                      class="accent-accent-cyan"
-                      :checked="searchConfigDraft.provider === 'tavily'"
-                      :disabled="!searchConfigLoaded"
-                      @change="setSearchConfigProvider('tavily')"
-                    >
-                    <div>
-                      <p class="text-sm font-medium text-white">Tavily</p>
-                      <p class="text-xs text-gray-500">
-                        Gateway-managed Tavily API key
-                      </p>
-                    </div>
-                  </label>
-
-                  <label
-                    class="flex items-center gap-3 rounded-xl border p-4 transition-all cursor-pointer"
-                    :class="searchConfigDraft.provider === 'microsoft-grounding' ? 'border-accent-cyan/50 bg-accent-cyan/5' : 'border-white/10 hover:border-white/20'"
-                  >
-                    <input
-                      type="radio"
-                      name="search-provider"
-                      value="microsoft-grounding"
-                      class="accent-accent-cyan"
-                      :checked="searchConfigDraft.provider === 'microsoft-grounding'"
-                      :disabled="!searchConfigLoaded"
-                      @change="setSearchConfigProvider('microsoft-grounding')"
-                    >
-                    <div>
-                      <p class="text-sm font-medium text-white">
-                        Microsoft Grounding
-                      </p>
-                      <p class="text-xs text-gray-500">
-                        Gateway-managed Microsoft Grounding key
-                      </p>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <label
-                  class="block text-xs font-medium text-gray-500 uppercase tracking-widest mb-2"
-                  x-text="searchCredentialLabel"
-                ></label>
-                <input
-                  type="password"
-                  autocomplete="off"
-                  :placeholder="searchConfigDraft.provider === 'tavily' ? 'Tavily API key' : searchConfigDraft.provider === 'microsoft-grounding' ? 'Microsoft Grounding API key' : 'No credential needed when disabled'"
-                  :value="searchCredentialValue"
-                  @input="setSearchCredentialValue($event.target.value)"
-                  :disabled="!searchConfigLoaded || searchConfigDraft.provider === 'disabled'"
-                  class="w-full"
-                >
-              </div>
-
-              <div
-                class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center"
-              >
-                <button
-                  @click="saveSearchConfig()"
-                  class="btn-primary w-full sm:w-auto"
-                  :disabled="!searchConfigLoaded || searchConfigSaving"
-                >
-                  <span x-show="!searchConfigSaving">Save Search Config</span>
-                  <span x-show="searchConfigSaving" class="flex items-center gap-2">
-                    ${spinner("h-4 w-4")} Saving...
-                  </span>
-                </button>
-
-                <button
-                  @click="testSearchConfig()"
-                  class="btn-ghost w-full sm:w-auto"
-                  :disabled="!searchConfigLoaded || searchConfigTesting || searchConfigDraft.provider === 'disabled'"
-                >
-                  <span x-show="!searchConfigTesting">Test Search</span>
-                  <span
-                    x-show="searchConfigTesting"
-                    class="flex items-center gap-2"
-                  >
-                    ${spinner("h-4 w-4")} Testing...
-                  </span>
-                </button>
-
-                <p
-                  class="text-xs text-gray-500"
-                  x-show="searchConfigDraft.provider === 'disabled'"
-                >
-                  Search testing is disabled until a provider is selected.
-                </p>
-              </div>
-
-              <template x-if="searchConfigTestResult">
-                <div class="bg-surface-900 rounded-xl border border-white/5 p-4">
-                  <div
-                    class="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div class="min-w-0">
-                      <p class="text-sm font-medium text-white">
-                        Search Test Result
-                      </p>
-                      <p class="text-xs text-gray-500">
-                        Provider: <span
-                          x-text="searchConfigTestResult.provider"
-                        ></span> · Query: <span
-                          x-text="searchConfigTestResult.query"
-                        ></span>
-                      </p>
-                    </div>
-                    <span
-                      class="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full"
-                      :class="searchConfigTestResult.ok ? 'bg-accent-emerald/10 text-accent-emerald' : 'bg-red-500/10 text-red-400'"
-                      x-text="searchConfigTestResult.ok ? 'OK' : 'Error'"
-                    ></span>
-                  </div>
-
-                  <template x-if="searchConfigTestResult.ok">
-                    <div class="space-y-3">
-                      <template
-                        x-for="result in searchConfigTestResult.results"
-                        :key="result.url + result.title"
-                      >
-                        <div
-                          class="rounded-lg border border-white/5 bg-surface-800 p-3"
-                        >
-                          <div class="flex items-start justify-between gap-3 mb-1">
-                            <div>
-                              <a
-                                :href="result.url"
-                                target="_blank"
-                                class="text-sm font-medium text-accent-cyan hover:underline break-words"
-                                x-text="result.title"
-                              ></a>
-                              <p
-                                class="text-[11px] text-gray-500 break-all"
-                                x-text="result.url"
-                              >
-                              </p>
-                            </div>
-                            <span
-                              class="text-[10px] text-gray-600 uppercase tracking-widest"
-                              x-show="result.pageAge"
-                              x-text="result.pageAge"
-                            ></span>
-                          </div>
-                          <p
-                            class="text-sm text-gray-300 leading-relaxed"
-                            x-text="result.previewText"
-                          >
-                          </p>
-                        </div>
-                      </template>
-                    </div>
-                  </template>
-
-                  <template x-if="!searchConfigTestResult.ok">
-                    <div
-                      class="rounded-lg border border-red-500/20 bg-red-500/5 p-3"
-                    >
-                      <p
-                        class="text-sm text-red-300 font-medium"
-                        x-text="searchConfigTestResult.error.code"
-                      >
-                      </p>
-                      <p
-                        class="text-sm text-gray-300 mt-1"
-                        x-text="searchConfigTestResult.error.message"
-                      >
-                      </p>
-                    </div>
-                  </template>
-                </div>
-              </template>
-            </div>
-          </template>
-        </div>
-      </div>
-    </template>
   `;
 }
 
@@ -1735,212 +1078,672 @@ export function renderSettingsTab() {
         x-transition:enter-start="opacity-0"
         x-transition:enter-end="opacity-100"
       >
-        <div class="glass-card p-6 mb-6 animate-in">
-          <h3 class="text-white font-semibold mb-1">Export Data</h3>
-          <p class="text-sm text-gray-400 mb-4">
-            Download all API keys, GitHub accounts, and usage data as a JSON file.
-          </p>
-          <label
-            class="mb-4 flex items-start gap-3 rounded-md border border-white/5 bg-surface-800/50 p-3"
+        <template x-if="meLoaded && githubAccounts.length === 0">
+          <div
+            class="glass-card p-5 sm:p-6 mb-5 glow-border animate-in flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
           >
-            <input
-              type="checkbox"
-              class="mt-0.5 h-4 w-4 rounded border-white/10 bg-surface-900 text-accent-cyan"
-              x-model="exportIncludePerformance"
+            <div class="min-w-0">
+              <h3 class="text-white font-medium mb-1">Connect GitHub Account</h3>
+              <p class="text-sm text-gray-400">
+                Link your GitHub account to use Copilot API with your own token.
+              </p>
+            </div>
+            <button
+              @click="startGithubAuth()"
+              class="btn-primary w-full sm:w-auto"
+              :disabled="deviceFlow.loading"
             >
-            <span>
-              <span class="block text-sm font-medium text-gray-200">
-                Include Performance Telemetry
+              <span x-show="!deviceFlow.loading">Connect GitHub</span>
+              <span x-show="deviceFlow.loading" class="flex items-center gap-2">
+                ${spinner("h-4 w-4")} Connecting…
               </span>
-              <span class="block text-xs text-gray-500">
-                Adds latency histogram history to the export.
-              </span>
-            </span>
-          </label>
-          <button
-            @click="exportData()"
-            class="btn-primary"
-            :disabled="exportLoading"
+            </button>
+          </div>
+        </template>
+
+        <template x-if="deviceFlow.userCode">
+          <div
+            class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in overflow-y-auto p-4"
           >
-            <span x-show="!exportLoading" class="flex items-center gap-2">
-              <svg
-                class="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              Export JSON
-            </span>
-            <span x-show="exportLoading" class="flex items-center gap-2">
-              ${spinner("h-4 w-4")} Exporting...
-            </span>
-          </button>
-        </div>
+            <div class="glass-card p-6 sm:p-8 max-w-md w-full glow-cyan">
+              <h3 class="text-white text-lg font-semibold mb-2">
+                GitHub Authorization
+              </h3>
+              <p class="text-gray-400 text-sm mb-6">
+                Enter this code on GitHub to authorize:
+              </p>
 
-        <div class="glass-card p-6 animate-in">
-          <h3 class="text-white font-semibold mb-1">Import Data</h3>
-          <p class="text-sm text-gray-400 mb-4">
-            Restore data from a previously exported JSON file.
-          </p>
-
-          <div class="mb-4">
-            <label
-              class="block w-full cursor-pointer border-2 border-dashed border-white/10 hover:border-accent-cyan/30 rounded-xl p-8 text-center transition-colors"
-              :class="importFile ? 'border-accent-cyan/40 bg-accent-cyan/5' : ''"
-            >
-              <input
-                type="file"
-                accept=".json"
-                class="hidden"
-                @change="handleImportFile($event)"
+              <div
+                class="bg-surface-900 rounded-xl p-6 text-center mb-6 glow-border"
               >
-              <template x-if="!importFile">
-                <div>
-                  <svg
-                    class="w-8 h-8 mx-auto mb-2 text-gray-500"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
+                <code
+                  class="block text-2xl sm:text-3xl font-mono font-bold text-accent-cyan tracking-[0.2em] sm:tracking-[0.3em] break-all"
+                  x-text="deviceFlow.userCode"
+                ></code>
+              </div>
+
+              <p class="text-gray-500 text-xs text-center mb-2">
+                Visit <a
+                  :href="deviceFlow.verificationUri"
+                  class="text-accent-cyan hover:underline break-all"
+                  x-text="deviceFlow.verificationUri"
+                  target="_blank"
+                ></a>
+              </p>
+              <a
+                :href="deviceFlow.verificationUri"
+                target="_blank"
+                class="btn-primary w-full block text-center mb-4"
+              >
+                Open GitHub
+              </a>
+
+              <div
+                class="flex items-center justify-center gap-2 text-sm text-gray-500"
+              >
+                ${spinner("h-4 w-4")} Waiting for authorization...
+              </div>
+
+              <button @click="cancelDeviceFlow()" class="btn-ghost w-full mt-4">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </template>
+
+        <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <div class="flex flex-col gap-5">
+            <div class="glass-card p-5 sm:p-6 animate-in">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="text-white font-semibold">GitHub Accounts</h3>
+                <template x-if="meLoaded && githubAccounts.length > 0">
+                  <button
+                    @click="startGithubAuth()"
+                    class="btn-ghost text-xs"
+                    :disabled="deviceFlow.loading"
                   >
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="17 8 12 3 7 8" />
-                    <line x1="12" y1="3" x2="12" y2="15" />
-                  </svg>
-                  <p class="text-sm text-gray-400">
-                    Click to select a JSON export file
-                  </p>
+                    <span x-show="!deviceFlow.loading">+ Add</span>
+                    <span
+                      x-show="deviceFlow.loading"
+                      class="flex items-center gap-1.5"
+                    >
+                      ${spinner("h-3 w-3")} Adding…
+                    </span>
+                  </button>
+                </template>
+              </div>
+              <template x-if="!meLoaded">
+                <div class="space-y-3">
+                  <div class="flex items-center gap-3">
+                    <div
+                      class="w-9 h-9 rounded-lg bg-surface-600 animate-pulse shrink-0"
+                    >
+                    </div>
+                    <div class="space-y-1.5 flex-1">
+                      <div class="h-4 w-28 bg-surface-600 rounded animate-pulse">
+                      </div>
+                      <div class="h-3 w-20 bg-surface-600 rounded animate-pulse">
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </template>
-              <template x-if="importFile">
-                <div>
-                  <svg
-                    class="w-8 h-8 mx-auto mb-2 text-accent-cyan"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  >
-                    <path
-                      d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
-                    />
-                    <polyline points="14 2 14 8 20 8" />
-                  </svg>
-                  <p class="text-sm text-white break-all" x-text="importFile.name">
-                  </p>
-                  <p
-                    class="text-xs text-gray-500 mt-1"
-                    x-text="'Exported: ' + (importPreview.exportedAt ? new Date(importPreview.exportedAt).toLocaleString() : 'unknown')"
-                  >
-                  </p>
+              <template x-if="meLoaded && githubAccounts.length === 0">
+                <p class="text-sm text-gray-500">No GitHub accounts connected</p>
+              </template>
+              <template x-if="meLoaded && githubAccounts.length > 0">
+                <div class="space-y-1">
+                  <template x-for="(acct, index) in githubAccounts" :key="acct.id">
+                    <div
+                      @click="selectGithubAccount(acct.id)"
+                      class="rounded-lg px-3 py-2.5 transition-colors"
+                      :class="selectedGithubAccountId === acct.id ? 'bg-accent-cyan/5 border border-accent-cyan/15' : 'hover:bg-white/[0.03] cursor-pointer border border-transparent'"
+                    >
+                      <div class="flex flex-col gap-3 sm:flex-row sm:items-start">
+                        <div class="flex min-w-0 flex-1 items-start gap-3">
+                          <img
+                            :src="acct.avatar_url"
+                            class="w-9 h-9 shrink-0 rounded-lg ring-1 ring-white/5"
+                          />
+                          <div class="min-w-0 flex-1">
+                            <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <p
+                                class="min-w-0 truncate text-sm text-white font-medium"
+                                x-text="acct.name || acct.login"
+                              >
+                              </p>
+                            </div>
+                            <p
+                              class="text-xs text-gray-500 truncate"
+                              x-text="'@' + acct.login"
+                            >
+                            </p>
+                            <div class="mt-2" x-show="hasUnavailableModels(acct)">
+                              <button
+                                type="button"
+                                @click.stop="toggleUnavailableDetails(acct)"
+                                :aria-expanded="unavailablePanelOpen(acct).toString()"
+                                class="inline-flex min-h-7 items-center gap-1.5 rounded-md bg-accent-amber/10 px-2 text-[10px] font-medium uppercase tracking-widest text-accent-amber ring-1 ring-accent-amber/20 transition-colors hover:bg-accent-amber/15"
+                              >
+                                <span
+                                  class="h-1.5 w-1.5 rounded-full bg-accent-amber status-pulse"
+                                ></span>
+                                <span x-text="unavailableBadgeText(acct)"></span>
+                                <svg
+                                  x-show="hasUnavailableModels(acct)"
+                                  class="h-3 w-3 transition-transform"
+                                  :class="unavailablePanelOpen(acct) ? 'rotate-180' : ''"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-width="2"
+                                >
+                                  <polyline points="6 9 12 15 18 9" />
+                                </svg>
+                              </button>
+                            </div>
+                            <div
+                              x-show="unavailablePanelOpen(acct)"
+                              @click.stop
+                              class="mt-2 space-y-1.5 rounded-lg border border-accent-amber/10 bg-black/15 p-2"
+                            >
+                              <template
+                                x-for="status in unavailableModels(acct)"
+                                :key="status.model + ':' + status.status"
+                              >
+                                <div
+                                  class="flex flex-col gap-1 rounded-md bg-white/[0.03] px-2 py-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                                >
+                                  <div class="min-w-0">
+                                    <p
+                                      class="break-all font-mono text-[11px] text-white"
+                                      x-text="status.model"
+                                    >
+                                    </p>
+                                    <p
+                                      class="mt-0.5 text-[10px] text-gray-500"
+                                      x-text="'HTTP ' + status.status"
+                                    >
+                                    </p>
+                                  </div>
+                                  <span
+                                    class="w-fit shrink-0 font-mono text-[10px] text-accent-amber"
+                                    x-text="cooldownRecoveryText(status)"
+                                  ></span>
+                                </div>
+                              </template>
+                            </div>
+                          </div>
+                        </div>
+                        <div
+                          class="flex w-full shrink-0 items-center justify-end gap-1 border-t border-white/[0.04] pt-2 sm:w-auto sm:border-t-0 sm:pt-0 sm:gap-1.5"
+                        >
+                          <button
+                            @click.stop="moveGithubAccount(acct.id, -1)"
+                            class="inline-flex min-h-8 min-w-8 items-center justify-center rounded-md text-gray-600 hover:text-accent-cyan hover:bg-white/[0.04] transition-colors p-1 disabled:opacity-30 disabled:hover:text-gray-600 disabled:hover:bg-transparent sm:min-h-9 sm:min-w-9"
+                            :disabled="index === 0"
+                            aria-label="Move account up"
+                            title="Move up"
+                          >
+                            <svg
+                              class="w-3.5 h-3.5"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                            >
+                              <polyline points="18 15 12 9 6 15" />
+                            </svg>
+                          </button>
+                          <button
+                            @click.stop="moveGithubAccount(acct.id, 1)"
+                            class="inline-flex min-h-8 min-w-8 items-center justify-center rounded-md text-gray-600 hover:text-accent-cyan hover:bg-white/[0.04] transition-colors p-1 disabled:opacity-30 disabled:hover:text-gray-600 disabled:hover:bg-transparent sm:min-h-9 sm:min-w-9"
+                            :disabled="index === githubAccounts.length - 1"
+                            aria-label="Move account down"
+                            title="Move down"
+                          >
+                            <svg
+                              class="w-3.5 h-3.5"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                            >
+                              <polyline points="6 9 12 15 18 9" />
+                            </svg>
+                          </button>
+                          <button
+                            @click.stop="disconnectGithub(acct.id, acct.login)"
+                            class="inline-flex min-h-8 min-w-8 items-center justify-center rounded-md text-gray-600 hover:text-accent-rose hover:bg-white/[0.04] transition-colors p-1 sm:min-h-9 sm:min-w-9"
+                            aria-label="Disconnect GitHub account"
+                            title="Disconnect"
+                          >
+                            <svg
+                              class="w-3.5 h-3.5"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                            >
+                              <line x1="18" y1="6" x2="6" y2="18" />
+                              <line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
                 </div>
               </template>
-            </label>
+
+              <div class="mt-4 border-t border-white/[0.05] pt-4">
+                <div
+                  class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+                >
+                  <div class="min-w-0">
+                    <h3 class="flex min-w-0 max-w-full items-baseline font-semibold">
+                      <span class="shrink-0 text-white">Copilot Quota</span>
+                      <span
+                        class="ml-1 min-w-0 truncate text-gray-500"
+                        x-text="selectedGithubAccountId ? '· @' + (githubAccounts.find((acct) => acct.id === selectedGithubAccountId)?.login || 'selected') : '· none'"
+                      ></span>
+                    </h3>
+                    <template x-if="usageData">
+                      <p class="text-xs text-gray-500 mt-0.5">
+                        <span x-text="usageData.copilot_plan"></span> · Resets <span
+                          x-text="formatDate(usageData.quota_reset_date)"
+                        ></span>
+                      </p>
+                    </template>
+                  </div>
+                  <template x-if="usageData">
+                    <div class="shrink-0 sm:text-right">
+                      <p class="font-mono text-2xl font-bold text-white">
+                        <span
+                          x-text="usageData.quota_snapshots.premium_interactions.entitlement - usageData.quota_snapshots.premium_interactions.remaining"
+                        ></span>
+                        <span class="mx-1 text-gray-500">/</span>
+                        <span
+                          x-text="usageData.quota_snapshots.premium_interactions.entitlement"
+                        ></span>
+                      </p>
+                      <p class="text-xs text-gray-500 mt-0.5">
+                        premium requests used
+                      </p>
+                    </div>
+                  </template>
+                </div>
+
+                <template x-if="usageData">
+                  <div class="mt-3">
+                    <div class="progress-track">
+                      <div
+                        class="progress-fill"
+                        :class="usagePercent > 90 ? 'bg-accent-rose' : usagePercent > 70 ? 'bg-gradient-to-r from-accent-amber to-accent-rose' : 'bg-gradient-to-r from-accent-cyan to-accent-emerald'"
+                        :style="'width:' + usagePercent + '%'"
+                      >
+                      </div>
+                    </div>
+                    <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <div class="rounded-lg border border-white/5 bg-white/[0.03] p-3">
+                        <p class="text-[11px] uppercase tracking-widest text-gray-500">
+                          Premium Remaining
+                        </p>
+                        <p
+                          class="mt-1 font-mono text-sm font-semibold text-white"
+                          x-text="usageData.quota_snapshots.premium_interactions.remaining"
+                        ></p>
+                      </div>
+                      <div class="rounded-lg border border-white/5 bg-white/[0.03] p-3">
+                        <p class="text-[11px] uppercase tracking-widest text-gray-500">
+                          Chat
+                        </p>
+                        <p class="mt-1 font-mono text-sm font-semibold text-white">
+                          <span
+                            x-text="usageData.quota_snapshots.chat.unlimited ? '\u221e unlimited' : usageData.quota_snapshots.chat.remaining"
+                          ></span>
+                        </p>
+                      </div>
+                      <div class="rounded-lg border border-white/5 bg-white/[0.03] p-3">
+                        <p class="text-[11px] uppercase tracking-widest text-gray-500">
+                          Completions
+                        </p>
+                        <p class="mt-1 font-mono text-sm font-semibold text-white">
+                          <span
+                            x-text="usageData.quota_snapshots.completions.unlimited ? '\u221e unlimited' : usageData.quota_snapshots.completions.remaining"
+                          ></span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+                <template x-if="!usageData && !usageError">
+                  <div class="mt-3 space-y-2">
+                    <div class="h-2 bg-surface-600 rounded animate-pulse"></div>
+                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <div class="h-16 bg-surface-600 rounded-lg animate-pulse"></div>
+                      <div class="h-16 bg-surface-600 rounded-lg animate-pulse"></div>
+                      <div class="h-16 bg-surface-600 rounded-lg animate-pulse"></div>
+                    </div>
+                  </div>
+                </template>
+                <template x-if="usageError">
+                  <p class="mt-3 text-sm text-gray-500">Unable to load quota</p>
+                </template>
+              </div>
+            </div>
+
+            <div class="glass-card p-5 sm:p-6 animate-in delay-2">
+              <div class="mb-4">
+                <h3 class="text-white font-semibold mb-1">Web Search</h3>
+                <p class="text-sm text-gray-400">
+                  Configure the search provider used by Anthropic Messages web search.
+                </p>
+              </div>
+
+              <template x-if="!searchConfigLoaded">
+                <div class="space-y-4">
+                  <div class="flex items-center gap-2 text-xs text-gray-500">
+                    ${spinner("h-3.5 w-3.5 text-gray-500")}
+                    <span>Loading saved search config...</span>
+                  </div>
+                  <div class="grid grid-cols-1 gap-3">
+                    <div class="h-20 rounded-xl bg-surface-600 animate-pulse"></div>
+                    <div class="h-20 rounded-xl bg-surface-600 animate-pulse"></div>
+                    <div class="h-20 rounded-xl bg-surface-600 animate-pulse"></div>
+                  </div>
+                  <div class="space-y-2">
+                    <div class="h-4 w-32 bg-surface-600 rounded animate-pulse"></div>
+                    <div class="h-11 bg-surface-600 rounded-lg animate-pulse"></div>
+                  </div>
+                </div>
+              </template>
+
+              <template x-if="searchConfigLoaded">
+                <div class="space-y-5">
+                  <div>
+                    <p
+                      class="text-xs font-medium text-gray-500 uppercase tracking-widest mb-3"
+                    >
+                      Search Provider
+                    </p>
+                    <div class="grid grid-cols-1 gap-3">
+                      <label
+                        class="flex items-center gap-3 rounded-xl border p-4 transition-all cursor-pointer"
+                        :class="searchConfigDraft.provider === 'disabled' ? 'border-accent-cyan/50 bg-accent-cyan/5' : 'border-white/10 hover:border-white/20'"
+                      >
+                        <input
+                          type="radio"
+                          name="search-provider"
+                          value="disabled"
+                          class="accent-accent-cyan"
+                          :checked="searchConfigDraft.provider === 'disabled'"
+                          :disabled="!searchConfigLoaded"
+                          @change="setSearchConfigProvider('disabled')"
+                        >
+                        <div>
+                          <p class="text-sm font-medium text-white">Disabled</p>
+                          <p class="text-xs text-gray-500">
+                            No upstream web search provider
+                          </p>
+                        </div>
+                      </label>
+
+                      <label
+                        class="flex items-center gap-3 rounded-xl border p-4 transition-all cursor-pointer"
+                        :class="searchConfigDraft.provider === 'tavily' ? 'border-accent-cyan/50 bg-accent-cyan/5' : 'border-white/10 hover:border-white/20'"
+                      >
+                        <input
+                          type="radio"
+                          name="search-provider"
+                          value="tavily"
+                          class="accent-accent-cyan"
+                          :checked="searchConfigDraft.provider === 'tavily'"
+                          :disabled="!searchConfigLoaded"
+                          @change="setSearchConfigProvider('tavily')"
+                        >
+                        <div>
+                          <p class="text-sm font-medium text-white">Tavily</p>
+                          <p class="text-xs text-gray-500">
+                            Gateway-managed Tavily API key
+                          </p>
+                        </div>
+                      </label>
+
+                      <label
+                        class="flex items-center gap-3 rounded-xl border p-4 transition-all cursor-pointer"
+                        :class="searchConfigDraft.provider === 'microsoft-grounding' ? 'border-accent-cyan/50 bg-accent-cyan/5' : 'border-white/10 hover:border-white/20'"
+                      >
+                        <input
+                          type="radio"
+                          name="search-provider"
+                          value="microsoft-grounding"
+                          class="accent-accent-cyan"
+                          :checked="searchConfigDraft.provider === 'microsoft-grounding'"
+                          :disabled="!searchConfigLoaded"
+                          @change="setSearchConfigProvider('microsoft-grounding')"
+                        >
+                        <div>
+                          <p class="text-sm font-medium text-white">
+                            Microsoft Grounding
+                          </p>
+                          <p class="text-xs text-gray-500">
+                            Gateway-managed Microsoft Grounding key
+                          </p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label
+                      class="block text-xs font-medium text-gray-500 uppercase tracking-widest mb-2"
+                      x-text="searchCredentialLabel"
+                    ></label>
+                    <input
+                      type="password"
+                      autocomplete="off"
+                      :placeholder="searchConfigDraft.provider === 'tavily' ? 'Tavily API key' : searchConfigDraft.provider === 'microsoft-grounding' ? 'Microsoft Grounding API key' : 'No credential needed when disabled'"
+                      :value="searchCredentialValue"
+                      @input="setSearchCredentialValue($event.target.value)"
+                      :disabled="!searchConfigLoaded || searchConfigDraft.provider === 'disabled'"
+                      class="w-full"
+                    >
+                  </div>
+
+                  <div
+                    class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center"
+                  >
+                    <button
+                      @click="saveSearchConfig()"
+                      class="btn-primary w-full sm:w-auto"
+                      :disabled="!searchConfigLoaded || searchConfigSaving"
+                    >
+                      <span x-show="!searchConfigSaving">Save Search Config</span>
+                      <span x-show="searchConfigSaving" class="flex items-center gap-2">
+                        ${spinner("h-4 w-4")} Saving...
+                      </span>
+                    </button>
+
+                    <button
+                      @click="testSearchConfig()"
+                      class="btn-ghost w-full sm:w-auto"
+                      :disabled="!searchConfigLoaded || searchConfigTesting || searchConfigDraft.provider === 'disabled'"
+                    >
+                      <span x-show="!searchConfigTesting">Test Search</span>
+                      <span
+                        x-show="searchConfigTesting"
+                        class="flex items-center gap-2"
+                      >
+                        ${spinner("h-4 w-4")} Testing...
+                      </span>
+                    </button>
+
+                    <p
+                      class="text-xs text-gray-500"
+                      x-show="searchConfigDraft.provider === 'disabled'"
+                    >
+                      Search testing is disabled until a provider is selected.
+                    </p>
+                  </div>
+
+                  <template x-if="searchConfigTestResult">
+                    <div class="bg-surface-900 rounded-xl border border-white/5 p-4">
+                      <div
+                        class="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div class="min-w-0">
+                          <p class="text-sm font-medium text-white">
+                            Search Test Result
+                          </p>
+                          <p class="text-xs text-gray-500">
+                            Provider: <span
+                              x-text="searchConfigTestResult.provider"
+                            ></span> · Query: <span
+                              x-text="searchConfigTestResult.query"
+                            ></span>
+                          </p>
+                        </div>
+                        <span
+                          class="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full"
+                          :class="searchConfigTestResult.ok ? 'bg-accent-emerald/10 text-accent-emerald' : 'bg-red-500/10 text-red-400'"
+                          x-text="searchConfigTestResult.ok ? 'OK' : 'Error'"
+                        ></span>
+                      </div>
+
+                      <template x-if="searchConfigTestResult.ok">
+                        <div class="space-y-3">
+                          <template
+                            x-for="result in searchConfigTestResult.results"
+                            :key="result.url + result.title"
+                          >
+                            <div
+                              class="rounded-lg border border-white/5 bg-surface-800 p-3"
+                            >
+                              <div class="flex items-start justify-between gap-3 mb-1">
+                                <div>
+                                  <a
+                                    :href="result.url"
+                                    target="_blank"
+                                    class="text-sm font-medium text-accent-cyan hover:underline break-words"
+                                    x-text="result.title"
+                                  ></a>
+                                  <p
+                                    class="text-[11px] text-gray-500 break-all"
+                                    x-text="result.url"
+                                  >
+                                  </p>
+                                </div>
+                                <span
+                                  class="text-[10px] text-gray-600 uppercase tracking-widest"
+                                  x-show="result.pageAge"
+                                  x-text="result.pageAge"
+                                ></span>
+                              </div>
+                              <p
+                                class="text-sm text-gray-300 leading-relaxed"
+                                x-text="result.previewText"
+                              >
+                              </p>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
+
+                      <template x-if="!searchConfigTestResult.ok">
+                        <div
+                          class="rounded-lg border border-red-500/20 bg-red-500/5 p-3"
+                        >
+                          <p
+                            class="text-sm text-red-300 font-medium"
+                            x-text="searchConfigTestResult.error.code"
+                          >
+                          </p>
+                          <p
+                            class="text-sm text-gray-300 mt-1"
+                            x-text="searchConfigTestResult.error.message"
+                          >
+                          </p>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
           </div>
 
-          <template x-if="importPreview.ready">
-            <div>
-              <div
-                class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4"
+          <div class="flex flex-col gap-5">
+            <div class="glass-card p-5 sm:p-6 animate-in delay-1">
+              <h3 class="text-white font-semibold mb-4">API Endpoints</h3>
+              <div class="min-w-0">
+                ${endpointRow(
+                  "POST",
+                  "/v1/messages",
+                  "Anthropic Messages",
+                  "https://docs.anthropic.com/en/api/messages",
+                )}
+                ${endpointRow(
+                  "POST",
+                  "/v1/messages/count_tokens",
+                  "Anthropic Count Tokens",
+                  "https://docs.anthropic.com/en/api/messages-count-tokens",
+                )}
+                ${endpointRow(
+                  "POST",
+                  "/v1/responses",
+                  "OpenAI Responses",
+                  "https://platform.openai.com/docs/api-reference/responses/create",
+                )}
+                ${endpointRow(
+                  "POST",
+                  "/v1/chat/completions",
+                  "OpenAI Chat Completions",
+                  "https://platform.openai.com/docs/api-reference/chat/create",
+                )}
+                ${endpointRow(
+                  "POST",
+                  "/v1/embeddings",
+                  "OpenAI Embeddings",
+                  "https://platform.openai.com/docs/api-reference/embeddings/create",
+                )}
+                ${endpointRow(
+                  "GET",
+                  "/v1/models",
+                  "OpenAI Models",
+                  "https://platform.openai.com/docs/api-reference/models/list",
+                )}
+              </div>
+            </div>
+
+            <div class="glass-card p-5 sm:p-6 animate-in delay-2">
+              <h3 class="text-white font-semibold mb-1">Export Data</h3>
+              <p class="text-sm text-gray-400 mb-4">
+                Download all API keys, GitHub accounts, and usage data as a JSON file.
+              </p>
+              <label
+                class="mb-4 flex items-start gap-3 rounded-md border border-white/5 bg-surface-800/50 p-3"
               >
-                <div class="bg-surface-800 rounded-lg p-3 text-center">
-                  <p class="text-xs text-gray-500 mb-1">API Keys</p>
-                  <p
-                    class="text-lg font-bold font-mono text-white"
-                    x-text="importPreview.apiKeys"
-                  >
-                  </p>
-                </div>
-                <div class="bg-surface-800 rounded-lg p-3 text-center">
-                  <p class="text-xs text-gray-500 mb-1">GitHub Accounts</p>
-                  <p
-                    class="text-lg font-bold font-mono text-white"
-                    x-text="importPreview.githubAccounts"
-                  >
-                  </p>
-                </div>
-                <div class="bg-surface-800 rounded-lg p-3 text-center">
-                  <p class="text-xs text-gray-500 mb-1">Usage Records</p>
-                  <p
-                    class="text-lg font-bold font-mono text-white"
-                    x-text="importPreview.usage"
-                  >
-                  </p>
-                </div>
-                <div class="bg-surface-800 rounded-lg p-3 text-center">
-                  <p class="text-xs text-gray-500 mb-1">Search Usage Records</p>
-                  <p
-                    class="text-lg font-bold font-mono text-white"
-                    x-text="importPreview.searchUsage"
-                  >
-                  </p>
-                </div>
-                <div class="bg-surface-800 rounded-lg p-3 text-center">
-                  <p class="text-xs text-gray-500 mb-1">Performance Records</p>
-                  <p
-                    class="text-lg font-bold font-mono text-white"
-                    x-text="importPreview.performance"
-                  >
-                  </p>
-                </div>
-              </div>
-
-              <div class="flex flex-col gap-3 mb-4 sm:flex-row">
-                <button
-                  @click="importMode = 'merge'"
-                  class="flex-1 p-3 rounded-lg border text-left transition-all"
-                  :class="importMode === 'merge' ? 'border-accent-cyan/50 bg-accent-cyan/5' : 'border-white/10 hover:border-white/20'"
+                <input
+                  type="checkbox"
+                  class="mt-0.5 h-4 w-4 rounded border-white/10 bg-surface-900 text-accent-cyan"
+                  x-model="exportIncludePerformance"
                 >
-                  <p
-                    class="text-sm font-medium"
-                    :class="importMode === 'merge' ? 'text-accent-cyan' : 'text-white'"
-                  >
-                    Merge
-                  </p>
-                  <p class="text-xs text-gray-500 mt-0.5">
-                    Keep existing data, add/update imported records
-                  </p>
-                </button>
-                <button
-                  @click="importMode = 'replace'"
-                  class="flex-1 p-3 rounded-lg border text-left transition-all"
-                  :class="importMode === 'replace' ? 'border-red-400/50 bg-red-400/5' : 'border-white/10 hover:border-white/20'"
-                >
-                  <p
-                    class="text-sm font-medium"
-                    :class="importMode === 'replace' ? 'text-red-400' : 'text-white'"
-                  >
-                    Replace
-                  </p>
-                  <p class="text-xs text-gray-500 mt-0.5">
-                    Wipe all existing data and restore from file
-                  </p>
-                </button>
-              </div>
-
-              <template x-if="importMode === 'replace'">
-                <div
-                  class="bg-red-500/10 border border-red-500/20 rounded-lg p-3 mb-4"
-                >
-                  <p class="text-sm text-red-400">
-                    This will permanently delete all existing data before importing.
-                    This cannot be undone.
-                  </p>
-                </div>
-              </template>
-
+                <span>
+                  <span class="block text-sm font-medium text-gray-200">
+                    Include Performance Telemetry
+                  </span>
+                  <span class="block text-xs text-gray-500">
+                    Adds latency histogram history to the export.
+                  </span>
+                </span>
+              </label>
               <button
-                @click="doImport()"
-                class="btn-primary w-full sm:w-auto"
-                :disabled="importLoading"
-                :class="importMode === 'replace' ? 'bg-red-500/80 hover:bg-red-500' : ''"
+                @click="exportData()"
+                class="btn-primary"
+                :disabled="exportLoading"
               >
-                <span x-show="!importLoading" class="flex items-center gap-2">
+                <span x-show="!exportLoading" class="flex items-center gap-2">
                   <svg
                     class="w-4 h-4"
                     viewBox="0 0 24 24"
@@ -1948,19 +1751,199 @@ export function renderSettingsTab() {
                     stroke="currentColor"
                     stroke-width="2"
                   >
-                    <polyline points="17 8 12 3 7 8" />
-                    <line x1="12" y1="3" x2="12" y2="15" />
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
                   </svg>
-                  <span
-                    x-text="importMode === 'replace' ? 'Replace All Data' : 'Merge Data'"
-                  ></span>
+                  Export JSON
                 </span>
-                <span x-show="importLoading" class="flex items-center gap-2">
-                  ${spinner("h-4 w-4")} Importing...
+                <span x-show="exportLoading" class="flex items-center gap-2">
+                  ${spinner("h-4 w-4")} Exporting...
                 </span>
               </button>
+
+              <div class="my-6 border-t border-white/[0.06]"></div>
+
+              <h3 class="text-white font-semibold mb-1">Import Data</h3>
+              <p class="text-sm text-gray-400 mb-4">
+                Restore data from a previously exported JSON file.
+              </p>
+
+              <div class="mb-4">
+                <label
+                  class="block w-full cursor-pointer border-2 border-dashed border-white/10 hover:border-accent-cyan/30 rounded-xl p-8 text-center transition-colors"
+                  :class="importFile ? 'border-accent-cyan/40 bg-accent-cyan/5' : ''"
+                >
+                  <input
+                    type="file"
+                    accept=".json"
+                    class="hidden"
+                    @change="handleImportFile($event)"
+                  >
+                  <template x-if="!importFile">
+                    <div>
+                      <svg
+                        class="w-8 h-8 mx-auto mb-2 text-gray-500"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      >
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                      </svg>
+                      <p class="text-sm text-gray-400">
+                        Click to select a JSON export file
+                      </p>
+                    </div>
+                  </template>
+                  <template x-if="importFile">
+                    <div>
+                      <svg
+                        class="w-8 h-8 mx-auto mb-2 text-accent-cyan"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      >
+                        <path
+                          d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                        />
+                        <polyline points="14 2 14 8 20 8" />
+                      </svg>
+                      <p class="text-sm text-white break-all" x-text="importFile.name">
+                      </p>
+                      <p
+                        class="text-xs text-gray-500 mt-1"
+                        x-text="'Exported: ' + (importPreview.exportedAt ? new Date(importPreview.exportedAt).toLocaleString() : 'unknown')"
+                      >
+                      </p>
+                    </div>
+                  </template>
+                </label>
+              </div>
+
+              <template x-if="importPreview.ready">
+                <div>
+                  <div
+                    class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4"
+                  >
+                    <div class="bg-surface-800 rounded-lg p-3 text-center">
+                      <p class="text-xs text-gray-500 mb-1">API Keys</p>
+                      <p
+                        class="text-lg font-bold font-mono text-white"
+                        x-text="importPreview.apiKeys"
+                      >
+                      </p>
+                    </div>
+                    <div class="bg-surface-800 rounded-lg p-3 text-center">
+                      <p class="text-xs text-gray-500 mb-1">GitHub Accounts</p>
+                      <p
+                        class="text-lg font-bold font-mono text-white"
+                        x-text="importPreview.githubAccounts"
+                      >
+                      </p>
+                    </div>
+                    <div class="bg-surface-800 rounded-lg p-3 text-center">
+                      <p class="text-xs text-gray-500 mb-1">Usage Records</p>
+                      <p
+                        class="text-lg font-bold font-mono text-white"
+                        x-text="importPreview.usage"
+                      >
+                      </p>
+                    </div>
+                    <div class="bg-surface-800 rounded-lg p-3 text-center">
+                      <p class="text-xs text-gray-500 mb-1">Search Usage Records</p>
+                      <p
+                        class="text-lg font-bold font-mono text-white"
+                        x-text="importPreview.searchUsage"
+                      >
+                      </p>
+                    </div>
+                    <div class="bg-surface-800 rounded-lg p-3 text-center">
+                      <p class="text-xs text-gray-500 mb-1">Performance Records</p>
+                      <p
+                        class="text-lg font-bold font-mono text-white"
+                        x-text="importPreview.performance"
+                      >
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="flex flex-col gap-3 mb-4 sm:flex-row">
+                    <button
+                      @click="importMode = 'merge'"
+                      class="flex-1 p-3 rounded-lg border text-left transition-all"
+                      :class="importMode === 'merge' ? 'border-accent-cyan/50 bg-accent-cyan/5' : 'border-white/10 hover:border-white/20'"
+                    >
+                      <p
+                        class="text-sm font-medium"
+                        :class="importMode === 'merge' ? 'text-accent-cyan' : 'text-white'"
+                      >
+                        Merge
+                      </p>
+                      <p class="text-xs text-gray-500 mt-0.5">
+                        Keep existing data, add/update imported records
+                      </p>
+                    </button>
+                    <button
+                      @click="importMode = 'replace'"
+                      class="flex-1 p-3 rounded-lg border text-left transition-all"
+                      :class="importMode === 'replace' ? 'border-red-400/50 bg-red-400/5' : 'border-white/10 hover:border-white/20'"
+                    >
+                      <p
+                        class="text-sm font-medium"
+                        :class="importMode === 'replace' ? 'text-red-400' : 'text-white'"
+                      >
+                        Replace
+                      </p>
+                      <p class="text-xs text-gray-500 mt-0.5">
+                        Wipe all existing data and restore from file
+                      </p>
+                    </button>
+                  </div>
+
+                  <template x-if="importMode === 'replace'">
+                    <div
+                      class="bg-red-500/10 border border-red-500/20 rounded-lg p-3 mb-4"
+                    >
+                      <p class="text-sm text-red-400">
+                        This will permanently delete all existing data before importing.
+                        This cannot be undone.
+                      </p>
+                    </div>
+                  </template>
+
+                  <button
+                    @click="doImport()"
+                    class="btn-primary w-full sm:w-auto"
+                    :disabled="importLoading"
+                    :class="importMode === 'replace' ? 'bg-red-500/80 hover:bg-red-500' : ''"
+                  >
+                    <span x-show="!importLoading" class="flex items-center gap-2">
+                      <svg
+                        class="w-4 h-4"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      >
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                      </svg>
+                      <span
+                        x-text="importMode === 'replace' ? 'Replace All Data' : 'Merge Data'"
+                      ></span>
+                    </span>
+                    <span x-show="importLoading" class="flex items-center gap-2">
+                      ${spinner("h-4 w-4")} Importing...
+                    </span>
+                  </button>
+                </div>
+              </template>
             </div>
-          </template>
+          </div>
         </div>
       </div>
     </template>

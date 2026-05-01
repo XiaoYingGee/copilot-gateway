@@ -1183,6 +1183,81 @@ Deno.test("DashboardPage renders mobile-friendly admin controls", () => {
   assertStringIncludes(html, "min-h-9 min-w-9");
 });
 
+Deno.test("DashboardPage merges Upstream into leftmost Settings tab and places Models before API Keys", () => {
+  const html = DashboardPage().toString();
+
+  assertStringIncludes(
+    html,
+    "const TABS = isAdmin ? ['settings', 'models', 'keys', 'usage', 'performance'] : ['models', 'keys', 'usage', 'performance'];",
+  );
+  assertStringIncludes(html, "const defaultTab = isAdmin ? 'settings' : 'models';");
+  assertFalse(html.includes("switchTab('upstream')"));
+  assertFalse(html.includes("tab === 'upstream'"));
+
+  const settings = html.indexOf(">\n              Settings\n            </button>");
+  const models = html.indexOf(">\n            Models\n          </button>");
+  const apiKeys = html.indexOf(">\n            API Keys\n          </button>");
+  assert(settings >= 0);
+  assert(models > settings);
+  assert(apiKeys > models);
+});
+
+Deno.test("DashboardPage renders Settings as masonry settings columns", () => {
+  const html = DashboardPage().toString();
+
+  assertStringIncludes(html, "grid grid-cols-1 gap-5 lg:grid-cols-2");
+  assertStringIncludes(html, "flex flex-col gap-5");
+  assertStringIncludes(html, "GitHub Accounts");
+  assertStringIncludes(html, "Copilot Quota");
+  assertStringIncludes(html, "API Endpoints");
+  assertStringIncludes(html, "Web Search");
+  assertStringIncludes(html, "Export Data");
+  assertStringIncludes(html, "Import Data");
+  assertFalse(html.includes("Data Transfer"));
+});
+
+Deno.test("DashboardPage renders compact Settings endpoint rows with docs links", () => {
+  const html = DashboardPage().toString();
+
+  assertStringIncludes(
+    html,
+    "flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap",
+  );
+  assertStringIncludes(html, "/v1/messages");
+  assertStringIncludes(html, "Anthropic Messages");
+  assertStringIncludes(html, "https://docs.anthropic.com/en/api/messages");
+  assertStringIncludes(html, "/v1/messages/count_tokens");
+  assertStringIncludes(html, "Anthropic Count Tokens");
+  assertStringIncludes(
+    html,
+    "https://docs.anthropic.com/en/api/messages-count-tokens",
+  );
+  assertStringIncludes(html, "/v1/responses");
+  assertStringIncludes(html, "OpenAI Responses");
+  assertStringIncludes(
+    html,
+    "https://platform.openai.com/docs/api-reference/responses/create",
+  );
+  assertStringIncludes(html, "/v1/chat/completions");
+  assertStringIncludes(html, "OpenAI Chat Completions");
+  assertStringIncludes(
+    html,
+    "https://platform.openai.com/docs/api-reference/chat/create",
+  );
+  assertStringIncludes(html, "/v1/embeddings");
+  assertStringIncludes(html, "OpenAI Embeddings");
+  assertStringIncludes(
+    html,
+    "https://platform.openai.com/docs/api-reference/embeddings/create",
+  );
+  assertStringIncludes(html, "/v1/models");
+  assertStringIncludes(html, "OpenAI Models");
+  assertStringIncludes(
+    html,
+    "https://platform.openai.com/docs/api-reference/models/list",
+  );
+});
+
 Deno.test("DashboardPage uses frontend-only selected GitHub account for quota display", () => {
   const html = DashboardPage().toString();
 
@@ -1191,6 +1266,10 @@ Deno.test("DashboardPage uses frontend-only selected GitHub account for quota di
   assertStringIncludes(html, "selectedGithubAccountId === acct.id");
   assertStringIncludes(html, "'/api/copilot-quota?user_id='");
   assertStringIncludes(html, "async selectGithubAccount(userId)");
+  assertStringIncludes(html, "class=\"ml-1 min-w-0 truncate text-gray-500\"");
+  assertStringIncludes(html, "'· @' + (githubAccounts.find");
+  assertStringIncludes(html, "usageData.copilot_plan");
+  assertFalse(html.includes("Selected account:"));
   assertFalse(html.includes("/auth/github/switch"));
 });
 

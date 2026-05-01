@@ -15,8 +15,8 @@ export function dashboardAssets() {
     <script>
     function dashboardApp() {
     const isAdmin = localStorage.getItem('isAdmin') === '1';
-    const TABS = isAdmin ? ['upstream', 'keys', 'usage', 'performance', 'models', 'settings'] : ['keys', 'usage', 'performance', 'models'];
-    const defaultTab = isAdmin ? 'upstream' : 'keys';
+    const TABS = isAdmin ? ['settings', 'models', 'keys', 'usage', 'performance'] : ['models', 'keys', 'usage', 'performance'];
+    const defaultTab = isAdmin ? 'settings' : 'models';
     const initTab = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : defaultTab;
 
     // Chart instances and key name map stored outside Alpine to avoid reactive proxy wrapping
@@ -616,7 +616,7 @@ export function dashboardAssets() {
 
                         const modelsReady = this.ensureModelsLoaded();
 
-                        if (this.tab === 'upstream' && this.isAdmin) {
+                        if (this.tab === 'settings' && this.isAdmin) {
                           this.loadMe().then(() => this.loadUsage());
                           this.loadSearchConfig();
                         } else if (this.tab === 'keys') {
@@ -628,7 +628,7 @@ export function dashboardAssets() {
                         }
 
                         setInterval(() => {
-                          if (this.tab === 'upstream' && this.isAdmin) this.loadUsage();
+                          if (this.tab === 'settings' && this.isAdmin) this.loadUsage();
                           if (this.tab === 'usage') this.loadUsageTabData();
                           if (this.tab === 'performance') this.loadPerformanceTabData();
                         }, 60000);
@@ -652,7 +652,7 @@ export function dashboardAssets() {
                         }
                         this.tab = t;
                         location.hash = '#' + t;
-                        if (t === 'upstream' && this.isAdmin) {
+                        if (t === 'settings' && this.isAdmin) {
                           if (!this.meLoaded) await this.loadMe();
                           await this.loadUsage();
                           if (!this.searchConfigLoaded) this.loadSearchConfig();
