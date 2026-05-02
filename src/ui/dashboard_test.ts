@@ -147,6 +147,7 @@ function usageRecord(offsetHours: number, overrides: Record<string, unknown>) {
     outputTokens: 1,
     cacheReadTokens: 0,
     cacheCreationTokens: 0,
+    cost: 0,
     ...overrides,
   };
 }
@@ -378,17 +379,15 @@ Deno.test("DashboardPage renders helper functions inside script without HTML ent
   assertFalse(html.includes("&quot;tavily&quot;"));
 });
 
-Deno.test("DashboardPage preserves pricing regex specificity in generated script", () => {
+Deno.test("DashboardPage no longer ships pricing regexes to the client", () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(html, "new RegExp('^gpt-5[.][23](-codex)?$')");
-  assertStringIncludes(html, "new RegExp('^gpt-4[.]1')");
-  assertStringIncludes(
-    html,
-    "new RegExp('^gpt-4o(-[0-9]{4}-[0-9]{2}-[0-9]{2})?$')",
-  );
-  assertFalse(html.includes("/^gpt-5.[23](-codex)?$/"));
-  assertFalse(html.includes("/^gpt-4o(-d{4}-d{2}-d{2})?$/"));
+  // Pricing now lives in src/lib/model-pricing.ts and is applied server-side
+  // before /api/token-usage returns records, so no MODEL_PRICING table or
+  // model-name regex should appear in the rendered dashboard script.
+  assertFalse(html.includes("MODEL_PRICING"));
+  assertFalse(html.includes("getModelPricing"));
+  assertFalse(html.includes("usageModelName"));
 });
 
 Deno.test("DashboardPage renders clickable usage summary metrics for chart axis selection", () => {
@@ -665,8 +664,9 @@ Deno.test("dashboardApp updates chart data and options when switching summary me
   }
 });
 
-Deno.test("dashboardApp estimates cost without double-counting cache writes", () => {
+Deno.test("dashboardApp surfaces backend-precomputed cost on chart and summary", () => {
   const { app, charts } = createDashboardHarness();
+  const expectedCost = 0.0004185;
   app.tokenData = [
     usageRecord(0, {
       model: "claude-sonnet-4",
@@ -674,13 +674,13 @@ Deno.test("dashboardApp estimates cost without double-counting cache writes", ()
       outputTokens: 10,
       cacheReadTokens: 20,
       cacheCreationTokens: 30,
+      cost: expectedCost,
     }),
   ];
 
   app.renderTokenCharts();
   app.switchTokenChartMetric("cost");
 
-  const expectedCost = 0.0004185;
   assertAlmostEquals(app.tokenSummary.cost, expectedCost, 1e-10);
   for (const chart of charts) {
     assertEquals(chart.options.scales.y.title.text, "Est. Cost");
@@ -885,12 +885,12 @@ Deno.test("dashboardApp keeps model colors on known model-id slots when earlier 
   assertEquals(modelChart.data.datasets[0].backgroundColor, "#00e67640");
 });
 
-Deno.test("dashboardApp aligns dotted Claude usage IDs with dashed model metadata slots", () => {
+Deno.test("dashboardApp uses merged-id model labels straight from the API", () => {
   const { app, charts } = createDashboardHarness();
-  app.allModels = [{ id: "claude-opus-4.7" }, { id: "claude-sonnet-4.7" }];
+  app.allModels = [{ id: "claude-opus-4-7" }, { id: "claude-sonnet-4-7" }];
   app.tokenData = [
     usageRecord(0, {
-      model: "claude-sonnet-4.7",
+      model: "claude-sonnet-4-7",
     }),
   ];
 
@@ -902,26 +902,22 @@ Deno.test("dashboardApp aligns dotted Claude usage IDs with dashed model metadat
   assertEquals(modelChart.data.datasets[0].backgroundColor, "#00e67640");
 });
 
-Deno.test("dashboardApp merges Claude usage variants into dashed base model totals", () => {
+Deno.test("dashboardApp aggregates usage rows that already share a merged model id", () => {
   const { app, charts } = createDashboardHarness();
-  app.allModels = [
-    { id: "claude-opus-4.7" },
-    { id: "claude-opus-4.7-xhigh" },
-    { id: "claude-opus-4.7-1m-internal" },
-  ];
+  app.allModels = [{ id: "claude-opus-4-7" }];
   app.tokenData = [
     usageRecord(0, {
-      model: "claude-opus-4.7",
+      model: "claude-opus-4-7",
       inputTokens: 2,
       outputTokens: 3,
     }),
     usageRecord(0, {
-      model: "claude-opus-4.7-xhigh",
+      model: "claude-opus-4-7",
       inputTokens: 5,
       outputTokens: 7,
     }),
     usageRecord(0, {
-      model: "claude-opus-4.7-1m-internal",
+      model: "claude-opus-4-7",
       inputTokens: 11,
       outputTokens: 13,
     }),
@@ -938,7 +934,7 @@ Deno.test("dashboardApp merges Claude usage variants into dashed base model tota
   );
 });
 
-Deno.test("dashboardApp keeps raw models for playground while Claude Code choices are merged bases", async () => {
+Deno.test("dashboardApp consumes merged model ids straight from /api/models", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (input) => {
     const url = String(input);
@@ -948,58 +944,22 @@ Deno.test("dashboardApp keeps raw models for playground while Claude Code choice
           JSON.stringify({
             data: [
               {
-                id: "claude-opus-4.7",
+                id: "claude-opus-4-7",
                 name: "Claude Opus 4.7",
                 model_picker_enabled: true,
                 capabilities: {
                   type: "chat",
                   limits: {
-                    max_prompt_tokens: 168000,
-                    max_output_tokens: 32000,
+                    max_context_window_tokens: 1000000,
+                    max_prompt_tokens: 936000,
+                    max_output_tokens: 64000,
                   },
                 },
                 supported_endpoints: ["/v1/messages"],
               },
               {
-                id: "claude-opus-4.7-xhigh",
-                name: "Claude Opus 4.7 xhigh",
-                model_picker_enabled: true,
-                capabilities: {
-                  type: "chat",
-                  limits: {
-                    max_prompt_tokens: 168000,
-                    max_output_tokens: 32000,
-                  },
-                },
-                supported_endpoints: ["/v1/messages"],
-              },
-              {
-                id: "claude-opus-4.7-1m-internal",
-                name: "Claude Opus 4.7 1M",
-                model_picker_enabled: true,
-                capabilities: {
-                  type: "chat",
-                  limits: {},
-                },
-                supported_endpoints: ["/v1/messages"],
-              },
-              {
-                id: "claude-sonnet-4.7",
+                id: "claude-sonnet-4-7",
                 name: "Claude Sonnet 4.7",
-                model_picker_enabled: true,
-                capabilities: { type: "chat", limits: {} },
-                supported_endpoints: ["/responses"],
-              },
-              {
-                id: "claude-sonnet-4.7-xhigh",
-                name: "Claude Sonnet 4.7 xhigh",
-                model_picker_enabled: true,
-                capabilities: { type: "chat", limits: {} },
-                supported_endpoints: ["/responses"],
-              },
-              {
-                id: "claude-sonnet-4.7-1m-internal",
-                name: "Claude Sonnet 4.7 1M",
                 model_picker_enabled: true,
                 capabilities: { type: "chat", limits: {} },
                 supported_endpoints: ["/responses"],
@@ -1025,27 +985,15 @@ Deno.test("dashboardApp keeps raw models for playground while Claude Code choice
     await app.loadModels();
 
     assertEquals(app.allModels.map((m: { id: string }) => m.id), [
-      "claude-opus-4.7",
-      "claude-opus-4.7-xhigh",
-      "claude-opus-4.7-1m-internal",
-      "claude-sonnet-4.7",
-      "claude-sonnet-4.7-xhigh",
-      "claude-sonnet-4.7-1m-internal",
+      "claude-opus-4-7",
+      "claude-sonnet-4-7",
       "gpt-5.5",
     ]);
     assertEquals(
       app.filteredChatModels
         .filter((m: { _divider?: boolean }) => !m._divider)
         .map((m: { id: string }) => m.id),
-      [
-        "claude-opus-4.7",
-        "claude-opus-4.7-xhigh",
-        "claude-opus-4.7-1m-internal",
-        "claude-sonnet-4.7",
-        "claude-sonnet-4.7-xhigh",
-        "claude-sonnet-4.7-1m-internal",
-        "gpt-5.5",
-      ],
+      ["claude-opus-4-7", "claude-sonnet-4-7", "gpt-5.5"],
     );
     assertEquals(app.claudeModelsBig, ["claude-opus-4-7"]);
     assertEquals(app.codexModels, ["gpt-5.5", "claude-sonnet-4-7"]);

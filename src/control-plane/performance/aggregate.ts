@@ -103,13 +103,7 @@ function displayGroup(
   groupBy: PerformanceGroupBy,
 ): string {
   if (groupBy === "none") return "all";
-  if (groupBy === "model") {
-    // KEEP IN SYNC:
-    // Dashboard token usage and Performance percentile grouping intentionally use
-    // the same Claude base-model display identity. Storage/export/import remain
-    // raw-model contracts; base-model grouping is query/display behavior only.
-    return displayModelName(record.model);
-  }
+  if (groupBy === "model") return displayModelName(record.model);
   return String(record[groupBy]);
 }
 

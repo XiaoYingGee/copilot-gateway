@@ -20,12 +20,12 @@ export function dateSuffixedClaudeModelAliasTarget(
   return match ? normalizeModelName(match[1]) : undefined;
 }
 
-// KEEP IN SYNC:
-// Dashboard token usage and Performance percentile grouping intentionally share
-// this Claude base-model display identity. Storage, export, and import remain
-// raw-model contracts; base-model grouping is query/display behavior only. If
-// Claude variant/date/base parsing changes here, update the mirrored dashboard
-// usageModelName() helper and both usage/performance aggregation tests together.
+// Single source of truth for display-id derivation. /api/models, the
+// /api/token-usage and /api/performance aggregations, and the pricing lookup
+// in src/lib/model-pricing.ts all consume display ids from here so dashboards
+// and external clients see one stable id per Claude family. Storage, export,
+// and import remain raw-model contracts; this helper only governs query and
+// display output.
 export function displayModelName(id: string): string {
   if (!id.startsWith("claude-")) return id;
   return normalizeModelName(id)

@@ -1,24 +1,45 @@
+// Aggregate raw usage records for the dashboard.
+//
+// Cost is computed per raw record before grouping (so per-variant pricing
+// stays accurate even when display ids merge variants), then summed alongside
+// tokens. The frontend reads cost as a precomputed number on each record and
+// has no model-name parsing or pricing logic.
+//
+// Storage and export/import remain raw-model — see /api/data-transfer.
+
 import { displayModelName } from "../../lib/model-name.ts";
+import { recordCostUsd } from "../../lib/model-pricing.ts";
 import type { UsageRecord } from "../../repo/types.ts";
 
-const usageRecordKey = (record: UsageRecord): string =>
+export interface DisplayUsageRecord extends UsageRecord {
+  cost: number;
+}
+
+const usageRecordKey = (record: DisplayUsageRecord): string =>
   `${record.keyId}\0${record.model}\0${record.hour}`;
 
 export function aggregateUsageForDisplay(
   records: readonly UsageRecord[],
-): UsageRecord[] {
-  const byKey = new Map<string, UsageRecord>();
+): DisplayUsageRecord[] {
+  const byKey = new Map<string, DisplayUsageRecord>();
 
   for (const record of records) {
-    // KEEP IN SYNC:
-    // Dashboard token usage and Performance percentile grouping intentionally use
-    // the same Claude base-model display identity. Storage/export/import remain
-    // raw-model contracts; base-model grouping is query/display behavior only.
-    const displayRecord: UsageRecord = {
+    const cacheRead = record.cacheReadTokens ?? 0;
+    const cacheCreation = record.cacheCreationTokens ?? 0;
+    const cost = recordCostUsd(
+      record.model,
+      record.inputTokens,
+      record.outputTokens,
+      cacheRead,
+      cacheCreation,
+    );
+
+    const displayRecord: DisplayUsageRecord = {
       ...record,
       model: displayModelName(record.model),
-      cacheReadTokens: record.cacheReadTokens ?? 0,
-      cacheCreationTokens: record.cacheCreationTokens ?? 0,
+      cacheReadTokens: cacheRead,
+      cacheCreationTokens: cacheCreation,
+      cost,
     };
     const key = usageRecordKey(displayRecord);
     const existing = byKey.get(key);
@@ -34,6 +55,7 @@ export function aggregateUsageForDisplay(
       (displayRecord.cacheReadTokens ?? 0);
     existing.cacheCreationTokens = (existing.cacheCreationTokens ?? 0) +
       (displayRecord.cacheCreationTokens ?? 0);
+    existing.cost += displayRecord.cost;
   }
 
   return [...byKey.values()].sort((a, b) =>

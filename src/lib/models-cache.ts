@@ -35,6 +35,18 @@ export interface ModelInfo {
     };
   };
   supported_endpoints?: string[];
+  // Upstream-only fields: the gateway clients are OpenAI/Anthropic SDKs that
+  // do not consume these, but they pass through verbatim and the /v1/models
+  // merge logic needs to read/write them.
+  billing?: {
+    is_premium?: boolean;
+    multiplier?: number;
+    restricted_to?: string[];
+  };
+  policy?: {
+    state?: string;
+    terms?: string;
+  };
 }
 
 export interface ModelsResponse {

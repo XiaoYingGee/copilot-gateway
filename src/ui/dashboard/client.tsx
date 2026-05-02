@@ -166,7 +166,7 @@ export function dashboardAssets() {
 
           function tokenChartMetricRecordValue(record, metric) {
             if (metric === 'requests') return record.requests;
-            if (metric === 'cost') return recordCost(record);
+            if (metric === 'cost') return record.cost ?? 0;
             if (metric === 'input') return record.inputTokens;
             if (metric === 'output') return record.outputTokens;
             if (metric === 'cached') return record.cacheReadTokens ?? 0;
@@ -231,62 +231,6 @@ export function dashboardAssets() {
                   + '  ' + renderHitRate(detail.cacheRead, detail.cacheCreation).padStart(7);
                 }
 
-                const MODEL_PRICING = [
-                  [new RegExp('^claude-opus-4-[567]$'),           { input: 5,    cacheRead: 0.5,   cacheWrite: 6.25, output: 25   }],
-                  [new RegExp('^claude-sonnet-4(-[56])?$'),       { input: 3,    cacheRead: 0.3,   cacheWrite: 3.75, output: 15   }],
-                  ['claude-haiku-4-5',                { input: 1,    cacheRead: 0.1,   cacheWrite: 1.25, output: 5    }],
-                  ['gpt-5.5',                         { input: 5,    cacheRead: 0.5,   output: 30   }],
-                  ['gpt-5.4',                         { input: 2.5,  cacheRead: 0.25,  output: 15   }],
-                  ['gpt-5.4-mini',                    { input: 0.75, cacheRead: 0.075, output: 4.5  }],
-                  ['gpt-5.4-nano',                    { input: 0.2,  cacheRead: 0.02,  output: 1.25 }],
-                  [new RegExp('^gpt-5[.][23](-codex)?$'),          { input: 1.75, cacheRead: 0.175, output: 14   }],
-                  ['gpt-5.1-codex-mini',              { input: 0.25, cacheRead: 0.025, output: 2    }],
-                  [new RegExp('^gpt-5[.]1'),                       { input: 1.25, cacheRead: 0.125, output: 10   }],
-                  ['gpt-5-mini',                      { input: 0.25, cacheRead: 0.025, output: 2    }],
-                  [new RegExp('^gpt-4[.]1'),                       { input: 2,    cacheRead: 0.5,   output: 8    }],
-                  ['gpt-41-copilot',                  { input: 2,    cacheRead: 0.5,   output: 8    }],
-                  [new RegExp('^gpt-4o(-[0-9]{4}-[0-9]{2}-[0-9]{2})?$'),  { input: 2.5,  cacheRead: 1.25,  output: 10   }],
-                  ['gpt-4-o-preview',                 { input: 2.5,  cacheRead: 1.25,  output: 10   }],
-                  [new RegExp('^gpt-4o-mini'),                    { input: 0.15, cacheRead: 0.075, output: 0.6  }],
-                  [new RegExp('^gpt-4(-0613)?$'),                 { input: 30,   output: 60   }],
-                  ['gpt-4-0125-preview',              { input: 10,   output: 30   }],
-                  ['gpt-3.5-turbo',                   { input: 0.5,  output: 1.5  }],
-                  ['gpt-3.5-turbo-0613',              { input: 1.5,  output: 2    }],
-                  ['gemini-2.5-pro',                  { input: 1.25, cacheRead: 0.125, output: 10   }],
-                  ['gemini-3-flash-preview',          { input: 0.5,  cacheRead: 0.05,  output: 3    }],
-                  ['gemini-3.1-pro-preview',          { input: 2,    cacheRead: 0.2,   output: 12   }],
-                  [new RegExp('^grok-code-fast'),                 { input: 0.2,  output: 1.5  }],
-                  ['goldeneye',                       { input: 1.25, cacheRead: 0.125, output: 10   }],
-                  ['raptor-mini',                     { input: 0.25, cacheRead: 0.025, output: 2    }],
-                  ['minimax-m2.5',                    { input: 0.3,  output: 1.2  }],
-                  [new RegExp('^text-embedding-3-small'),         { input: 0.02 }],
-                  ['text-embedding-ada-002',          { input: 0.1  }],
-                ];
-
-                function getModelPricing(displayName) {
-                  for (const [key, pricing] of MODEL_PRICING) {
-                    if (typeof key === 'string' ? displayName === key : key.test(displayName)) return pricing;
-                  }
-                  return null;
-                }
-
-                function usageCost(inputTokens, outputTokens, cacheRead, cacheWrite, pricing) {
-                  const prefillInput = inputTokens - cacheRead - cacheWrite;
-                  const inputCost = prefillInput * (pricing.input ?? 0);
-                  const cacheReadCost = cacheRead * (pricing.cacheRead ?? pricing.input ?? 0);
-                  const cacheWriteCost = cacheWrite * (pricing.cacheWrite ?? pricing.input ?? 0);
-                  const outputCost = outputTokens * (pricing.output ?? 0);
-                  return (inputCost + cacheReadCost + cacheWriteCost + outputCost) / 1e6;
-                }
-
-                function recordCost(r) {
-                  const p = getModelPricing(usageModelName(r.model));
-                  if (!p) return 0;
-                  const cacheRead = r.cacheReadTokens ?? 0;
-                  const cacheWrite = r.cacheCreationTokens ?? 0;
-                  return usageCost(r.inputTokens, r.outputTokens ?? 0, cacheRead, cacheWrite, p);
-                }
-
                 function formatCost(cost) {
                   if (cost >= 1) return '$' + cost.toFixed(2);
                   if (cost >= 0.01) return '$' + cost.toFixed(3);
@@ -296,42 +240,10 @@ export function dashboardAssets() {
 
                 const CLAUDE_TIER = { opus: 0, sonnet: 1, haiku: 2 };
 
-                const CLAUDE_VARIANT_SUFFIX = /-(?:high|xhigh|1m(?:-internal)?)$/;
-                const CLAUDE_DATE_SUFFIX = /-\\d{8}$/;
-
-                function claudeUpstreamSyntax(id) {
-                  return id.replace(/-(\\d+)-(\\d+)(?=-|$)/g, '-$1.$2');
-                }
-
-                function claudeBaseModelId(id) {
-                  if (!id || !id.startsWith('claude-')) return id;
-                  const upstream = claudeUpstreamSyntax(id).replace(CLAUDE_DATE_SUFFIX, '');
-                  return upstream.replace(CLAUDE_VARIANT_SUFFIX, '');
-                }
-
-                function claudeDisplayModelId(id) {
-                  return claudeBaseModelId(id).replace(/(\\d)\\.(\\d)/g, '$1-$2');
-                }
-
-                // KEEP IN SYNC:
-                // The backend token usage API and Performance percentile API use the
-                // same Claude base-model display identity. This mirrored frontend
-                // helper keeps dashboard chart code idempotent for already-merged
-                // records and stable for model metadata ordering.
-                function usageModelName(id) {
-                  return id?.startsWith('claude-') ? claudeDisplayModelId(id) : id;
-                }
-
-                function configModelName(id) {
-                  return id?.startsWith('claude-') ? claudeDisplayModelId(id) : id;
-                }
-
                 function modelContextWindow(model) {
                   const limits = model.capabilities?.limits;
-                  const explicit = limits?.max_context_window_tokens || 0;
-                  const total = (limits?.max_prompt_tokens || 0) + (limits?.max_output_tokens || 0);
-                  const suffix = /-1m(?:-|$)/.test(model.id) ? 1000000 : 0;
-                  return Math.max(explicit, total, suffix);
+                  return limits?.max_context_window_tokens
+                    || ((limits?.max_prompt_tokens || 0) + (limits?.max_output_tokens || 0));
                 }
 
                 function claudeTier(id) {
@@ -699,15 +611,10 @@ export function dashboardAssets() {
                           const claudeFiltered = data
                           .filter((m) => m.id.startsWith('claude-') && m.supported_endpoints?.includes('/v1/messages'));
 
-                          const claudeContextByModel = new Map();
-                          this.claudeContextMap = {};
-                          for (const m of claudeFiltered) {
-                            const id = configModelName(m.id);
-                            const total = modelContextWindow(m);
-                            claudeContextByModel.set(id, Math.max(total, claudeContextByModel.get(id) || 0));
-                          }
-                          this.claudeContextMap = Object.fromEntries(claudeContextByModel);
-                          const claudeAll = [...claudeContextByModel.keys()];
+                          this.claudeContextMap = Object.fromEntries(
+                            claudeFiltered.map((m) => [m.id, modelContextWindow(m)]),
+                          );
+                          const claudeAll = claudeFiltered.map((m) => m.id);
 
                           this.claudeModelsBig = [...claudeAll].sort(sortClaudeBig);
                           this.claudeModelsSonnet = [...claudeAll].sort(sortClaudeSonnet);
@@ -716,9 +623,9 @@ export function dashboardAssets() {
                           this.claudeSonnetModel = this.claudeModelsSonnet[0] || '';
                           this.claudeSmallModel = this.claudeModelsSmall[0] || '';
 
-                          this.codexModels = [...new Set(data
+                          this.codexModels = data
                             .filter((m) => m.supported_endpoints?.includes('/responses'))
-                            .map((m) => configModelName(m.id)))]
+                            .map((m) => m.id)
                             .sort(sortCodex);
                           this.codexModel = this.codexModels[0] || '';
 
@@ -1468,7 +1375,7 @@ export function dashboardAssets() {
                                 const bucket = isDaily ? this.localDateKey(utc) : this.localHourKey(utc);
                                 if (!agg.has(bucket)) continue;
                                 const m = agg.get(bucket);
-                                const val = dimension === 'model' ? usageModelName(r.model) : r[dimension];
+                                const val = dimension === 'model' ? r.model : r[dimension];
                                 if (!isTokenChartPercentMetric(metric)) {
                                   m.set(val, (m.get(val) || 0) + tokenChartMetricRecordValue(r, metric));
                                 }
@@ -1479,7 +1386,7 @@ export function dashboardAssets() {
                                 prev.output += r.outputTokens;
                                 prev.cacheRead += r.cacheReadTokens ?? 0;
                                 prev.cacheCreation += r.cacheCreationTokens ?? 0;
-                                prev.cost += recordCost(r);
+                                prev.cost += r.cost ?? 0;
                                 dm.set(val, prev);
                               }
                               if (isTokenChartPercentMetric(metric)) {
@@ -1543,7 +1450,7 @@ export function dashboardAssets() {
                             },
 
                             updateSummary() {
-                              const filtered = this.tokenData.filter((r) => !this.hiddenKeys.has(r.keyId) && !this.hiddenModels.has(usageModelName(r.model)));
+                              const filtered = this.tokenData.filter((r) => !this.hiddenKeys.has(r.keyId) && !this.hiddenModels.has(r.model));
                               let totalReqs = 0, totalIn = 0, totalOut = 0, totalCR = 0, totalCC = 0, totalCost = 0;
                               for (const r of filtered) {
                                 totalReqs += r.requests;
@@ -1551,7 +1458,7 @@ export function dashboardAssets() {
                                 totalOut += r.outputTokens;
                                 totalCR += r.cacheReadTokens ?? 0;
                                 totalCC += r.cacheCreationTokens ?? 0;
-                                totalCost += recordCost(r);
+                                totalCost += r.cost ?? 0;
                               }
                               this.tokenSummary = {
                                 requests: totalReqs,
@@ -1570,7 +1477,7 @@ export function dashboardAssets() {
                               const bucketKeysArr = [...bucketMap.keys()];
 
                               if (_charts.key) {
-                                const filtered = this.tokenData.filter((r) => !this.hiddenModels.has(usageModelName(r.model)));
+                                const filtered = this.tokenData.filter((r) => !this.hiddenModels.has(r.model));
                                 const { agg, detail } = this.aggregateBuckets(filtered, 'keyId');
                                 _detailMaps.key = detail;
                                 this.applyTokenChartMetricOptions(_charts.key);
@@ -1648,7 +1555,7 @@ export function dashboardAssets() {
                                 keyMetaMap.set(r.keyId, { name: r.keyName, createdAt: r.keyCreatedAt ?? keyMetaMap.get(r.keyId)?.createdAt });
                                 allKeyIds.add(r.keyId);
                                 allKeyIdsForOrder.add(r.keyId);
-                                allModels.add(usageModelName(r.model));
+                                allModels.add(r.model);
                               }
                               const activeSearchUsageData = this.searchUsageData.filter((r) => r.provider === this.searchUsageActiveProvider);
                               for (const r of activeSearchUsageData) {
@@ -1670,7 +1577,7 @@ export function dashboardAssets() {
                               _detailMaps.searchKey = searchKeyDetail;
 
                               const keyList = usageKeyChartEntries([...allKeyIds], keyMetaMap, [...allKeyIdsForOrder], this.tokenKeyColorOrder);
-                              const modelList = usageModelChartEntries([...allModels], this.allModels.map((m) => usageModelName(m.id)));
+                              const modelList = usageModelChartEntries([...allModels], this.allModels.map((m) => m.id));
                               const searchKeyList = usageKeyChartEntries([...allSearchKeyIds], keyMetaMap, [...allSearchKeyIdsForOrder], this.searchUsageKeyColorOrder);
 
                               const keyDatasets = keyList.map(({ keyId, colorSlot }) => {

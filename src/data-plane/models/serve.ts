@@ -12,6 +12,7 @@ import {
   apiErrorResponse,
   getErrorMessage,
 } from "../shared/http/proxy-response.ts";
+import { mergeClaudeVariants } from "./merge.ts";
 
 const errorResponse = (error: unknown): Response | null => {
   if (error instanceof ModelsFetchError) {
@@ -52,7 +53,11 @@ export const models = async (c: Context) => {
     }
 
     if (sawSuccess) {
-      return Response.json({ object: "list", data: [...byId.values()] });
+      const merged = mergeClaudeVariants({
+        object: "list",
+        data: [...byId.values()],
+      });
+      return Response.json(merged);
     }
 
     const upstreamErrorResponse = errorResponse(lastError);
